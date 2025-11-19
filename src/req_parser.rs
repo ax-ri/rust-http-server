@@ -50,7 +50,7 @@ impl Display for HttpHeader {
 struct HttpRequest {
     verb: String,
     path: PathBuf,
-    version: (u32, u32),
+    version: String,
     headers: Vec<HttpHeader>,
 }
 
@@ -59,7 +59,7 @@ impl HttpRequest {
         HttpRequest {
             verb: String::new(),
             path: PathBuf::new(),
-            version: (0, 0),
+            version: String::new(),
             headers: Vec::new(),
         }
     }
@@ -69,11 +69,10 @@ impl Display for HttpRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut res = write!(
             f,
-            "{} {} HTTP/{}.{}\n",
+            "{} {} HTTP/{}\n",
             self.verb,
             self.path.to_str().unwrap(),
-            self.version.0,
-            self.version.1,
+            self.version,
         );
         self.headers.iter().for_each(|h| {
             res = res.and(match h {
@@ -147,18 +146,21 @@ impl ReqParser {
 }
 
 /// Parse the first line of an HTTP request (e.g. GET /foo/bar HTTP/1.1)
-fn parse_first_line(line: &str) -> Result<(String, PathBuf, (u32, u32)), ParsingError> {
-    let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<path>.+) HTTP/(?<major>\d+)\.(?<minor>\d+)")
+fn parse_first_line(line: &str) -> Result<(String, PathBuf, String), ParsingError> {
+    let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<path>.+) HTTP/(?<version>[\d.]+)")
         .unwrap();
     re.captures(line)
         .map(|caps| {
             (
-                caps["verb"].parse().unwrap(),
-                PathBuf::from(caps["path"].parse::<String>().unwrap()),
-                (
-                    caps["major"].parse::<u32>().unwrap(),
-                    caps["minor"].parse::<u32>().unwrap(),
+                caps["verb"].parse().expect("Failed to parse HTTP verb"),
+                PathBuf::from(
+                    caps["path"]
+                        .parse::<String>()
+                        .expect("Failed to parse HTTP request path"),
                 ),
+                caps["version"]
+                    .parse()
+                    .expect("Failed to parse HTTP version"),
             )
         })
         .ok_or(ParsingError::InvalidFirstLine)
