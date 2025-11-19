@@ -71,7 +71,9 @@ impl Display for HttpRequest {
             f,
             "{} {} HTTP/{}\n",
             self.verb,
-            self.path.to_str().unwrap(),
+            self.path
+                .to_str()
+                .expect("Cannot convert request path to string"),
             self.version,
         );
         self.headers.iter().for_each(|h| {
@@ -148,7 +150,7 @@ impl ReqParser {
 /// Parse the first line of an HTTP request (e.g. GET /foo/bar HTTP/1.1)
 fn parse_first_line(line: &str) -> Result<(String, PathBuf, String), ParsingError> {
     let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<path>.+) HTTP/(?<version>[\d.]+)")
-        .unwrap();
+        .expect("Cannot build request line parser");
     re.captures(line)
         .map(|caps| {
             (
