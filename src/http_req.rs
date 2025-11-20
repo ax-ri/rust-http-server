@@ -3,28 +3,27 @@
 pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub enum HttpReqTarget {
-    Path(PathBuf),
-    Other(String),
+pub enum ReqTarget {
+    All,
+    Path(String),
 }
 
 #[derive(Debug)]
-pub struct HttpReqHead {
+pub struct ReqHead {
     verb: String,
-    target: HttpReqTarget,
+    target: ReqTarget,
     version: String,
     headers: HashMap<ReqHeader, HeaderValue>,
 }
 
-impl HttpReqHead {
+impl ReqHead {
     pub fn new(
         verb: String,
-        target: HttpReqTarget,
+        target: ReqTarget,
         version: String,
         headers: HashMap<ReqHeader, HeaderValue>,
     ) -> Self {
@@ -37,7 +36,7 @@ impl HttpReqHead {
     }
 }
 
-impl Display for HttpReqHead {
+impl Display for ReqHead {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -55,15 +54,23 @@ impl Display for HttpReqHead {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct HttpReq {
-    head: HttpReqHead,
+    head: ReqHead,
 }
 
 impl HttpReq {
-    pub fn new(head: HttpReqHead) -> Self {
+    pub fn new(head: ReqHead) -> Self {
         Self { head }
     }
 
     pub fn version(&self) -> &str {
         self.head.version.as_str()
+    }
+
+    pub fn verb(&self) -> &str {
+        self.head.verb.as_str()
+    }
+
+    pub fn target(&self) -> &ReqTarget {
+        &self.head.target
     }
 }

@@ -1,20 +1,20 @@
 //! HTTP request parsing.
 
-use crate::http_req::{HeaderValue, HttpReqHead, HttpReqTarget, ReqHeader, ReqOnlyHeader};
+use crate::http_req::{HeaderValue, ReqHead, ReqHeader, ReqOnlyHeader, ReqTarget};
 
 use regex::Regex;
 
+use crate::http_header::GeneralHeader;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
-struct RawHttpReqHead {
+struct RawReqHead {
     request_line: String,
     headers: HashMap<String, String>,
     last_header_name: String,
 }
 
-impl RawHttpReqHead {
+impl RawReqHead {
     fn new() -> Self {
         Self {
             request_line: String::new(),
@@ -25,7 +25,7 @@ impl RawHttpReqHead {
 }
 
 #[derive(Debug, PartialEq)]
-enum HttpReqHeadParserState {
+enum ReqHeadParserState {
     RequestLine,
     Headers,
     Done,
@@ -37,39 +37,39 @@ pub enum ReqHeadParsingError {
     InvalidHeader,
 }
 
-pub struct HttpReqHeadParser {
-    state: HttpReqHeadParserState,
-    raw_req_head: RawHttpReqHead,
-    parsed_req_head: Option<HttpReqHead>,
+pub struct ReqHeadParser {
+    state: ReqHeadParserState,
+    raw_req_head: RawReqHead,
+    parsed_req_head: Option<ReqHead>,
 }
 
-impl HttpReqHeadParser {
+impl ReqHeadParser {
     pub fn new() -> Self {
         Self {
-            state: HttpReqHeadParserState::RequestLine,
-            raw_req_head: RawHttpReqHead::new(),
+            state: ReqHeadParserState::RequestLine,
+            raw_req_head: RawReqHead::new(),
             parsed_req_head: None,
         }
     }
 
     pub fn is_complete(&self) -> bool {
-        self.state == HttpReqHeadParserState::Done
+        self.state == ReqHeadParserState::Done
     }
 
     pub fn process_line(&mut self, line: &str) -> Result<(), ReqHeadParsingError> {
         match self.state {
-            HttpReqHeadParserState::RequestLine => {
+            ReqHeadParserState::RequestLine => {
                 if line.is_empty() {
                     Err(ReqHeadParsingError::InvalidFirstLine)
                 } else {
                     self.raw_req_head.request_line = String::from(line);
-                    self.state = HttpReqHeadParserState::Headers;
+                    self.state = ReqHeadParserState::Headers;
                     Ok(())
                 }
             }
-            HttpReqHeadParserState::Headers => {
+            ReqHeadParserState::Headers => {
                 if line.is_empty() {
-                    self.state = HttpReqHeadParserState::Done;
+                    self.state = ReqHeadParserState::Done;
                     Ok(())
                 } else {
                     match *line.splitn(2, ":").collect::<Vec<_>>() {
@@ -103,31 +103,31 @@ impl HttpReqHeadParser {
                     }
                 }
             }
-            HttpReqHeadParserState::Done => {
+            ReqHeadParserState::Done => {
                 panic!("Head parser called when already done")
             }
         }
     }
 
-    pub fn do_parse(&mut self) -> Result<HttpReqHead, ReqHeadParsingError> {
+    pub fn do_parse(&mut self) -> Result<ReqHead, ReqHeadParsingError> {
         let (verb, target, version) = parse_first_line(&self.raw_req_head.request_line)?;
         let mut headers = HashMap::new();
         for (name, value) in &self.raw_req_head.headers {
             let (name, value) = parse_header(name, value)?;
             headers.insert(name, value);
         }
-        Ok(HttpReqHead::new(verb, target, version, headers))
+        Ok(ReqHead::new(verb, target, version, headers))
     }
 
     pub fn reset(&mut self) {
-        self.state = HttpReqHeadParserState::RequestLine;
-        self.raw_req_head = RawHttpReqHead::new();
+        self.state = ReqHeadParserState::RequestLine;
+        self.raw_req_head = RawReqHead::new();
         self.parsed_req_head = None;
     }
 }
 
 /// Parse the first line of an HTTP request (e.g. GET /foo/bar HTTP/1.1)
-fn parse_first_line(line: &str) -> Result<(String, HttpReqTarget, String), ReqHeadParsingError> {
+fn parse_first_line(line: &str) -> Result<(String, ReqTarget, String), ReqHeadParsingError> {
     let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<target>.+) HTTP/(?<version>[\d.]+)")
         .expect("Cannot build request line parser");
     let caps = re
@@ -138,8 +138,8 @@ fn parse_first_line(line: &str) -> Result<(String, HttpReqTarget, String), ReqHe
             .parse()
             .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?,
         match &caps["target"] {
-            "*" => HttpReqTarget::Other(String::from("*")),
-            path => HttpReqTarget::Path(PathBuf::from(path)),
+            "*" => ReqTarget::All,
+            path => ReqTarget::Path(String::from(path)),
         },
         caps["version"]
             .parse()
@@ -151,7 +151,10 @@ fn parse_header(name: &str, value: &str) -> Result<(ReqHeader, HeaderValue), Req
     match (name, value) {
         // general headers
         ("cache-control", _value) => todo!(),
-        ("connection", _value) => todo!(),
+        ("connection", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::Connection),
+            HeaderValue::Plain(String::from(v)),
+        )),
         ("date", _value) => todo!(),
         ("pragma", _value) => todo!(),
         ("trailer", _value) => todo!(),
@@ -185,7 +188,10 @@ fn parse_header(name: &str, value: &str) -> Result<(ReqHeader, HeaderValue), Req
         ("max-forwards", _value) => todo!(),
         ("proxy-authorization", _value) => todo!(),
         ("range", _value) => todo!(),
-        ("referer", _value) => todo!(),
+        ("referer", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::Referer),
+            HeaderValue::Plain(String::from(v)),
+        )),
         ("te", _value) => todo!(),
         ("user-agent", value) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::UserAgent),
@@ -205,7 +211,6 @@ fn parse_header_value(value: &str) -> Result<HeaderValue, ReqHeadParsingError> {
     if values.is_empty() {
         return Err(ReqHeadParsingError::InvalidHeader);
     }
-    println!("values {:?}", values);
     let values: Vec<(String, Vec<(String, String)>)> =
         values.iter().map(|m| parse_value_and_attr(m)).collect();
     match values.len() {

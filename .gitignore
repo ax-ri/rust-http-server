@@ -1,2 +1,5 @@
 /target
 /.idea
+/*.http
+/htdocs
+!/htdocs/.gitkeep
