@@ -1,4 +1,7 @@
+mod http_head;
+mod req_handler;
 mod req_parser;
+mod res_builder;
 mod server;
 
 use log::info;

@@ -1,20 +1,16 @@
-use crate::req_parser::ReqParser;
+use crate::req_parser::HttpReqHeadParser;
 use log::{debug, error, info};
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 
 pub struct Server {
     listener: TcpListener,
-    req_parser: ReqParser,
 }
 
 impl Server {
     pub fn new<A: ToSocketAddrs>(addr: A) -> Result<Self, std::io::Error> {
         match TcpListener::bind(addr) {
-            Ok(listener) => Ok(Self {
-                listener,
-                req_parser: ReqParser::new(),
-            }),
+            Ok(listener) => Ok(Self { listener }),
             Err(err) => Err(err),
         }
     }
@@ -33,25 +29,35 @@ impl Server {
         info!("Connection received from: {}", stream.peer_addr().unwrap());
 
         let mut buffered_stream = BufReader::new(&mut *stream);
+        let mut req_head_parser = HttpReqHeadParser::new();
 
-        let mut closed = false;
-        while !closed {
-            self.req_parser.reset();
+        let mut connection_closed = false;
+        while !connection_closed {
+            req_head_parser.reset();
             let mut buf = String::new();
-            let mut is_done = false;
 
-            debug!("read start");
-            while !is_done {
+            debug!("waiting for request head");
+            while !req_head_parser.is_complete() {
                 buf.clear();
-                buffered_stream.read_line(&mut buf).unwrap();
+                buffered_stream
+                    .read_line(&mut buf)
+                    .expect("Cannot read line from buffered stream");
                 if buf.is_empty() {
-                    closed = true;
+                    connection_closed = true;
                     break;
                 }
                 debug!("Received line: {:?}", buf);
-                is_done = self.req_parser.parse_line(&buf);
+                req_head_parser
+                    .process_line(buf.trim())
+                    .expect("Cannot process line");
             }
-            debug!("read end");
+            debug!("done reading request head");
+            debug!("parsing request head");
+            let parsed_head = req_head_parser
+                .do_parse()
+                .expect("Cannot parse request head");
+            debug!("request head parsing done");
+            println!("REQUEST HEAD:{:?}", parsed_head);
         }
 
         info!("Connection closed: {}", stream.peer_addr().unwrap());

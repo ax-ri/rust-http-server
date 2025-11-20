@@ -1,204 +1,188 @@
-use crate::req_parser::ParserState::RequestLine;
-use log::error;
+use crate::http_head::{
+    HttpHeaderParsedValue, HttpReqHead, HttpReqHeader, HttpReqTarget, ReqOnlyHttpHeader,
+};
+
 use regex::Regex;
+
 use std::cmp::PartialEq;
-use std::fmt::{Display, Formatter};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
-struct HttpHeaderParsedValue {
-    original: String,
-    parsed: Vec<(String, Vec<(String, String)>)>,
+struct RawHttpReqHead {
+    request_line: String,
+    headers: HashMap<String, String>,
+    last_header_name: String,
 }
 
-enum HttpHeader {
-    Accept(HttpHeaderParsedValue),
-    AcceptCharset(HttpHeaderParsedValue),
-    AcceptEncoding(HttpHeaderParsedValue),
-    AcceptLanguage(HttpHeaderParsedValue),
-    // Authorization,
-    // Expect,
-    // From,
-    Host(String),
-    // IfMatch,
-    // IfModifiedSince,
-    // If-None-Match,
-    // If-Range,
-    // If-Unmodified-Since,
-    // Max-Forwards,
-    // Proxy-Authorization,
-    // Range,
-    // Referer,
-    // TE
-    UserAgent(String),
-    Other(String, String),
-}
-
-impl Display for HttpHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            HttpHeader::Accept(value) => write!(f, "Accept: {:?}", value.parsed),
-            HttpHeader::AcceptCharset(value) => write!(f, "Accept-Charset: {:?}", value.parsed),
-            HttpHeader::AcceptEncoding(value) => write!(f, "Accept-Encoding: {:?}", value.parsed),
-            HttpHeader::AcceptLanguage(value) => write!(f, "Accept-Language: {:?}", value.parsed),
-            HttpHeader::Host(host) => write!(f, "Host: {}", host),
-            HttpHeader::UserAgent(host) => write!(f, "User-Agent: {}", host),
-            HttpHeader::Other(name, value) => write!(f, "{}: {}", name, value),
-        }
-    }
-}
-
-struct HttpRequest {
-    verb: String,
-    path: PathBuf,
-    version: String,
-    headers: Vec<HttpHeader>,
-}
-
-impl HttpRequest {
+impl RawHttpReqHead {
     fn new() -> Self {
-        HttpRequest {
-            verb: String::new(),
-            path: PathBuf::new(),
-            version: String::new(),
-            headers: Vec::new(),
+        Self {
+            request_line: String::new(),
+            headers: HashMap::new(),
+            last_header_name: String::new(),
         }
-    }
-}
-
-impl Display for HttpRequest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut res = write!(
-            f,
-            "{} {} HTTP/{}\n",
-            self.verb,
-            self.path
-                .to_str()
-                .expect("Cannot convert request path to string"),
-            self.version,
-        );
-        self.headers.iter().for_each(|h| {
-            res = res.and(match h {
-                HttpHeader::Other(_, _) => write!(f, "(Other) {}\n", h),
-                _ => write!(f, "{}\n", h),
-            })
-        });
-        res
     }
 }
 
 #[derive(Debug, PartialEq)]
-enum ParserState {
+enum HttpReqHeadParserState {
     RequestLine,
     Headers,
+    Done,
 }
 
 #[derive(Debug)]
-enum ParsingError {
+pub enum HttpReqHeadParsingError {
     InvalidFirstLine,
     InvalidHeader,
 }
 
-pub struct ReqParser {
-    state: ParserState,
-    req: HttpRequest,
+pub struct HttpReqHeadParser {
+    state: HttpReqHeadParserState,
+    raw_req_head: RawHttpReqHead,
+    parsed_req_head: Option<HttpReqHead>,
 }
 
-impl ReqParser {
+impl HttpReqHeadParser {
     pub fn new() -> Self {
         Self {
-            state: RequestLine,
-            req: HttpRequest::new(),
+            state: HttpReqHeadParserState::RequestLine,
+            raw_req_head: RawHttpReqHead::new(),
+            parsed_req_head: None,
         }
     }
 
-    pub fn parse_line(&mut self, line: &str) -> bool {
+    pub fn is_complete(&self) -> bool {
+        self.state == HttpReqHeadParserState::Done
+    }
+
+    pub fn process_line(&mut self, line: &str) -> Result<(), HttpReqHeadParsingError> {
         match self.state {
-            ParserState::RequestLine => {
-                match parse_first_line(line) {
-                    Ok((verb, path, version)) => {
-                        self.req.verb = verb;
-                        self.req.path = path;
-                        self.req.version = version;
-                        self.state = ParserState::Headers;
-                    }
-                    Err(e) => error!("parse_line: error {:?}", e),
-                };
-                false
+            HttpReqHeadParserState::RequestLine => {
+                if line.is_empty() {
+                    Err(HttpReqHeadParsingError::InvalidFirstLine)
+                } else {
+                    self.raw_req_head.request_line = String::from(line);
+                    self.state = HttpReqHeadParserState::Headers;
+                    Ok(())
+                }
             }
-            ParserState::Headers => match line {
-                "\n" | "\r\n" => {
-                    println!("REQUEST\n{}", self.req);
-                    true
+            HttpReqHeadParserState::Headers => {
+                if line.is_empty() {
+                    self.state = HttpReqHeadParserState::Done;
+                    Ok(())
+                } else {
+                    match *line.splitn(2, ":").collect::<Vec<_>>() {
+                        // typical name: value header line
+                        [name, value] => {
+                            // header names should be treated case-insensitive
+                            let name = String::from(name).to_ascii_lowercase();
+                            self.raw_req_head
+                                .headers
+                                .entry(name.clone())
+                                .or_default()
+                                .push_str(value.trim_start());
+                            self.raw_req_head.last_header_name = name;
+                            Ok(())
+                        }
+                        // if the line has not ':', then it may be the previous header line continued
+                        [value] => {
+                            // error if there is no previous header
+                            if self.raw_req_head.last_header_name.is_empty() {
+                                Err(HttpReqHeadParsingError::InvalidHeader)
+                            } else {
+                                self.raw_req_head
+                                    .headers
+                                    .entry(self.raw_req_head.last_header_name.clone())
+                                    .or_default()
+                                    .push_str(value);
+                                Ok(())
+                            }
+                        }
+                        _ => Err(HttpReqHeadParsingError::InvalidHeader),
+                    }
                 }
-                _ => {
-                    match parse_header(line) {
-                        Ok(header) => self.req.headers.push(header),
-                        Err(e) => error!("parse_line: error {:?}", e),
-                    };
-                    false
-                }
-            },
+            }
+            HttpReqHeadParserState::Done => {
+                panic!("Head parser called when already done")
+            }
         }
+    }
+
+    pub fn do_parse(&mut self) -> Result<HttpReqHead, HttpReqHeadParsingError> {
+        let (verb, target, version) = parse_first_line(&self.raw_req_head.request_line)?;
+        let mut headers = HashMap::new();
+        for (name, value) in &self.raw_req_head.headers {
+            headers.insert(name.clone(), parse_header(name, value)?);
+        }
+        Ok(HttpReqHead::new(verb, target, version, headers))
     }
 
     pub fn reset(&mut self) {
-        self.state = ParserState::RequestLine;
-        self.req = HttpRequest::new();
+        self.state = HttpReqHeadParserState::RequestLine;
+        self.raw_req_head = RawHttpReqHead::new();
+        self.parsed_req_head = None;
     }
 }
 
 /// Parse the first line of an HTTP request (e.g. GET /foo/bar HTTP/1.1)
-fn parse_first_line(line: &str) -> Result<(String, PathBuf, String), ParsingError> {
-    let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<path>.+) HTTP/(?<version>[\d.]+)")
+fn parse_first_line(
+    line: &str,
+) -> Result<(String, HttpReqTarget, String), HttpReqHeadParsingError> {
+    let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<target>.+) HTTP/(?<version>[\d.]+)")
         .expect("Cannot build request line parser");
-    re.captures(line)
-        .map(|caps| {
-            (
-                caps["verb"].parse().expect("Failed to parse HTTP verb"),
-                PathBuf::from(
-                    caps["path"]
-                        .parse::<String>()
-                        .expect("Failed to parse HTTP request path"),
-                ),
-                caps["version"]
-                    .parse()
-                    .expect("Failed to parse HTTP version"),
-            )
-        })
-        .ok_or(ParsingError::InvalidFirstLine)
+    let caps = re
+        .captures(line)
+        .ok_or(HttpReqHeadParsingError::InvalidFirstLine)?;
+    Ok((
+        caps["verb"]
+            .parse()
+            .map_err(|_| HttpReqHeadParsingError::InvalidFirstLine)?,
+        match &caps["target"] {
+            "*" => HttpReqTarget::Other(String::from("*")),
+            path => HttpReqTarget::Path(PathBuf::from(path)),
+        },
+        caps["version"]
+            .parse()
+            .map_err(|_| HttpReqHeadParsingError::InvalidFirstLine)?,
+    ))
 }
 
-fn parse_header(line: &str) -> Result<HttpHeader, ParsingError> {
-    match *line.trim().split(": ").collect::<Vec<_>>() {
-        ["Accept", value] => parse_header_value(value).map(|v| HttpHeader::Accept(v)),
-        ["Accept-Charset", value] => {
-            parse_header_value(value).map(|v| HttpHeader::AcceptCharset(v))
-        }
-        ["Accept-Encoding", value] => {
-            parse_header_value(value).map(|v| HttpHeader::AcceptEncoding(v))
-        }
-        ["Accept-Language", value] => {
-            parse_header_value(value).map(|v| HttpHeader::AcceptLanguage(v))
-        }
-        ["Host", value] => Ok(HttpHeader::Host(String::from(value))),
-        ["User-Agent", value] => Ok(HttpHeader::UserAgent(String::from(value))),
-        [name, value] => Ok(HttpHeader::Other(String::from(name), String::from(value))),
-        _ => Err(ParsingError::InvalidHeader),
+fn parse_header(name: &str, value: &str) -> Result<HttpReqHeader, HttpReqHeadParsingError> {
+    match (name, value) {
+        ("accept", value) => parse_header_value(value)
+            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::Accept(v))),
+        ("accept-charset", value) => parse_header_value(value)
+            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::AcceptCharset(v))),
+        ("accept-encoding", value) => parse_header_value(value)
+            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::AcceptEncoding(v))),
+        ("accept-language", value) => parse_header_value(value)
+            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::AcceptLanguage(v))),
+        ("host", value) => Ok(HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::Host(
+            String::from(value),
+        ))),
+        ("user-agent", value) => Ok(HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::UserAgent(
+            String::from(value),
+        ))),
+        (name, value) => Ok(HttpReqHeader::Other(
+            String::from(name),
+            String::from(value),
+        )),
     }
 }
 
 /// Parse a header value that is made of a list of comma-separated values.
-fn parse_header_value(value: &str) -> Result<HttpHeaderParsedValue, ParsingError> {
+fn parse_header_value(value: &str) -> Result<HttpHeaderParsedValue, HttpReqHeadParsingError> {
     let trimmed_value = value.replace(" ", "");
     let values = trimmed_value.split(",").collect::<Vec<_>>();
     if values.is_empty() {
-        return Err(ParsingError::InvalidHeader);
+        return Err(HttpReqHeadParsingError::InvalidHeader);
     }
     println!("values {:?}", values);
     let values: Vec<(String, Vec<(String, String)>)> =
         values.iter().map(|m| parse_value_and_attr(m)).collect();
     match values.len() {
-        0 => Err(ParsingError::InvalidHeader),
+        0 => Err(HttpReqHeadParsingError::InvalidHeader),
         _ => Ok(HttpHeaderParsedValue {
             original: String::from(value),
             parsed: values,
