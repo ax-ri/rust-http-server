@@ -1,11 +1,13 @@
-use crate::http_head::{
-    HttpHeaderParsedValue, HttpReqHead, HttpReqHeader, HttpReqTarget, ReqOnlyHttpHeader,
+//! HTTP request parsing.
+
+use crate::http_req::{
+    HttpHeaderValue, HttpReqHead, HttpReqHeader, HttpReqTarget, ReqOnlyHttpHeader,
 };
 
 use regex::Regex;
 
 use std::cmp::PartialEq;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 struct RawHttpReqHead {
@@ -111,9 +113,9 @@ impl HttpReqHeadParser {
 
     pub fn do_parse(&mut self) -> Result<HttpReqHead, HttpReqHeadParsingError> {
         let (verb, target, version) = parse_first_line(&self.raw_req_head.request_line)?;
-        let mut headers = HashMap::new();
+        let mut headers = HashSet::new();
         for (name, value) in &self.raw_req_head.headers {
-            headers.insert(name.clone(), parse_header(name, value)?);
+            headers.insert(parse_header(name, value)?);
         }
         Ok(HttpReqHead::new(verb, target, version, headers))
     }
@@ -159,10 +161,10 @@ fn parse_header(name: &str, value: &str) -> Result<HttpReqHeader, HttpReqHeadPar
         ("accept-language", value) => parse_header_value(value)
             .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::AcceptLanguage(v))),
         ("host", value) => Ok(HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::Host(
-            String::from(value),
+            HttpHeaderValue::Plain(String::from(value)),
         ))),
         ("user-agent", value) => Ok(HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::UserAgent(
-            String::from(value),
+            HttpHeaderValue::Plain(String::from(value)),
         ))),
         (name, value) => Ok(HttpReqHeader::Other(
             String::from(name),
@@ -172,7 +174,7 @@ fn parse_header(name: &str, value: &str) -> Result<HttpReqHeader, HttpReqHeadPar
 }
 
 /// Parse a header value that is made of a list of comma-separated values.
-fn parse_header_value(value: &str) -> Result<HttpHeaderParsedValue, HttpReqHeadParsingError> {
+fn parse_header_value(value: &str) -> Result<HttpHeaderValue, HttpReqHeadParsingError> {
     let trimmed_value = value.replace(" ", "");
     let values = trimmed_value.split(",").collect::<Vec<_>>();
     if values.is_empty() {
@@ -183,10 +185,7 @@ fn parse_header_value(value: &str) -> Result<HttpHeaderParsedValue, HttpReqHeadP
         values.iter().map(|m| parse_value_and_attr(m)).collect();
     match values.len() {
         0 => Err(HttpReqHeadParsingError::InvalidHeader),
-        _ => Ok(HttpHeaderParsedValue {
-            original: String::from(value),
-            parsed: values,
-        }),
+        _ => Ok(HttpHeaderValue::Parsed(values)),
     }
 }
 
