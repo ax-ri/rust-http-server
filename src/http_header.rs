@@ -4,188 +4,192 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 /// Http header that can be part of requests and responses.
-pub enum GeneralHttpHeader {
-    CacheControl(HttpHeaderValue),
-    Connection(HttpHeaderValue),
-    Date(HttpHeaderValue),
-    Pragma(HttpHeaderValue),
-    Trailer(HttpHeaderValue),
-    TransferEncoding(HttpHeaderValue),
-    Upgrade(HttpHeaderValue),
-    Via(HttpHeaderValue),
-    Warning(HttpHeaderValue),
+pub enum GeneralHeader {
+    CacheControl,
+    Connection,
+    Date,
+    Pragma,
+    Trailer,
+    TransferEncoding,
+    Upgrade,
+    Via,
+    Warning,
 }
 
-impl Display for GeneralHttpHeader {
+impl Display for GeneralHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GeneralHttpHeader::CacheControl(v) => write!(f, "Cache-Control: {}", v),
-            GeneralHttpHeader::Connection(v) => write!(f, "Connection: {}", v),
-            GeneralHttpHeader::Date(v) => write!(f, "Date: {}", v),
-            GeneralHttpHeader::Pragma(v) => write!(f, "Pragma: {}", v),
-            GeneralHttpHeader::Trailer(v) => write!(f, "Trailer: {}", v),
-            GeneralHttpHeader::TransferEncoding(v) => write!(f, "Transfer-Encoding: {}", v),
-            GeneralHttpHeader::Upgrade(v) => write!(f, "Upgrade: {}", v),
-            GeneralHttpHeader::Via(v) => write!(f, "Via: {}", v),
-            GeneralHttpHeader::Warning(v) => write!(f, "Warning: {}", v),
+            GeneralHeader::CacheControl => write!(f, "Cache-Control"),
+            GeneralHeader::Connection => write!(f, "Connection"),
+            GeneralHeader::Date => write!(f, "Date"),
+            GeneralHeader::Pragma => write!(f, "Pragma"),
+            GeneralHeader::Trailer => write!(f, "Trailer"),
+            GeneralHeader::TransferEncoding => write!(f, "Transfer-Encoding"),
+            GeneralHeader::Upgrade => write!(f, "Upgrade"),
+            GeneralHeader::Via => write!(f, "Via"),
+            GeneralHeader::Warning => write!(f, "Warning"),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum HttpHeaderValue {
+pub enum HeaderValue {
+    Number(i32),
     Plain(String),
     Parsed(Vec<(String, Vec<(String, String)>)>),
 }
 
-impl Display for HttpHeaderValue {
+impl Display for HeaderValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            HttpHeaderValue::Plain(s) => write!(f, "{}", s),
-            HttpHeaderValue::Parsed(_) => todo!(),
+            HeaderValue::Number(n) => write!(f, "{}", n),
+            HeaderValue::Plain(s) => write!(f, "{}", s),
+            HeaderValue::Parsed(_) => todo!(),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum ReqOnlyHttpHeader {
-    Accept(HttpHeaderValue),
-    AcceptCharset(HttpHeaderValue),
-    AcceptEncoding(HttpHeaderValue),
-    AcceptLanguage(HttpHeaderValue),
-    Authorization(HttpHeaderValue),
-    Expect(HttpHeaderValue),
-    From(HttpHeaderValue),
-    Host(HttpHeaderValue),
-    IfMatch(HttpHeaderValue),
-    IfModifiedSince(HttpHeaderValue),
-    IfNoneMatch(HttpHeaderValue),
-    IfRange(HttpHeaderValue),
-    IfUnmodifiedSince(HttpHeaderValue),
-    MaxForwards(HttpHeaderValue),
-    ProxyAuthorization(HttpHeaderValue),
-    Range(HttpHeaderValue),
-    Referer(HttpHeaderValue),
-    TE(HttpHeaderValue),
-    UserAgent(HttpHeaderValue),
+pub enum ReqOnlyHeader {
+    Accept,
+    AcceptCharset,
+    AcceptEncoding,
+    AcceptLanguage,
+    Authorization,
+    Expect,
+    From,
+    Host,
+    IfMatch,
+    IfModifiedSince,
+    IfNoneMatch,
+    IfRange,
+    IfUnmodifiedSince,
+    MaxForwards,
+    ProxyAuthorization,
+    Range,
+    Referer,
+    TE,
+    UserAgent,
 }
 
-impl Display for ReqOnlyHttpHeader {
+impl Display for ReqOnlyHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReqOnlyHttpHeader::Accept(v) => write!(f, "Accept: {}", v),
-            ReqOnlyHttpHeader::AcceptCharset(v) => write!(f, "Accept-Charset: {}", v),
-            ReqOnlyHttpHeader::AcceptEncoding(v) => write!(f, "Accept-Encoding: {}", v),
-            ReqOnlyHttpHeader::AcceptLanguage(v) => write!(f, "Accept-Language: {}", v),
-            ReqOnlyHttpHeader::Authorization(v) => write!(f, "Authorization: {}", v),
-            ReqOnlyHttpHeader::Expect(v) => write!(f, "Expect: {}", v),
-            ReqOnlyHttpHeader::From(v) => write!(f, "From: {}", v),
-            ReqOnlyHttpHeader::Host(v) => write!(f, "Host: {}", v),
-            ReqOnlyHttpHeader::IfMatch(v) => write!(f, "If-Match: {}", v),
-            ReqOnlyHttpHeader::IfModifiedSince(v) => write!(f, "If-Modified-Since: {}", v),
-            ReqOnlyHttpHeader::IfNoneMatch(v) => write!(f, "If-None-Match: {}", v),
-            ReqOnlyHttpHeader::IfRange(v) => write!(f, "If-Range: {}", v),
-            ReqOnlyHttpHeader::IfUnmodifiedSince(v) => write!(f, "If-Unmodified-Since: {}", v),
-            ReqOnlyHttpHeader::MaxForwards(v) => write!(f, "Max-Forwards: {}", v),
-            ReqOnlyHttpHeader::ProxyAuthorization(v) => write!(f, "Proxy-Authorization: {}", v),
-            ReqOnlyHttpHeader::Range(v) => write!(f, "Range: {}", v),
-            ReqOnlyHttpHeader::Referer(v) => write!(f, "Referer: {}", v),
-            ReqOnlyHttpHeader::TE(v) => write!(f, "TE: {}", v),
-            ReqOnlyHttpHeader::UserAgent(v) => write!(f, "User-Agent: {}", v),
+            ReqOnlyHeader::Accept => write!(f, "Accept"),
+            ReqOnlyHeader::AcceptCharset => write!(f, "Accept-Charset"),
+            ReqOnlyHeader::AcceptEncoding => write!(f, "Accept-Encoding"),
+            ReqOnlyHeader::AcceptLanguage => write!(f, "Accept-Language"),
+            ReqOnlyHeader::Authorization => write!(f, "Authorization"),
+            ReqOnlyHeader::Expect => write!(f, "Expect"),
+            ReqOnlyHeader::From => write!(f, "From"),
+            ReqOnlyHeader::Host => write!(f, "Host"),
+            ReqOnlyHeader::IfMatch => write!(f, "If-Match"),
+            ReqOnlyHeader::IfModifiedSince => write!(f, "If-Modified-Since"),
+            ReqOnlyHeader::IfNoneMatch => write!(f, "If-None-Match"),
+            ReqOnlyHeader::IfRange => write!(f, "If-Range"),
+            ReqOnlyHeader::IfUnmodifiedSince => write!(f, "If-Unmodified-Since"),
+            ReqOnlyHeader::MaxForwards => write!(f, "Max-Forwards"),
+            ReqOnlyHeader::ProxyAuthorization => write!(f, "Proxy-Authorization"),
+            ReqOnlyHeader::Range => write!(f, "Range"),
+            ReqOnlyHeader::Referer => write!(f, "Referer"),
+            ReqOnlyHeader::TE => write!(f, "TE"),
+            ReqOnlyHeader::UserAgent => write!(f, "User-Agent"),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum ResOnlyHttpHeader {
-    AcceptRanges(HttpHeaderValue),
-    Age(HttpHeaderValue),
-    ETag(HttpHeaderValue),
-    Location(HttpHeaderValue),
-    ProxyAuthenticate(HttpHeaderValue),
-    RetryAfter(HttpHeaderValue),
-    Server(HttpHeaderValue),
-    Vary(HttpHeaderValue),
-    WWWAuthenticate(HttpHeaderValue),
+pub enum ResOnlyHeader {
+    AcceptRanges,
+    Age,
+    ETag,
+    Location,
+    ProxyAuthenticate,
+    RetryAfter,
+    Server,
+    Vary,
+    WWWAuthenticate,
 }
 
-impl Display for ResOnlyHttpHeader {
+impl Display for ResOnlyHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ResOnlyHttpHeader::AcceptRanges(v) => write!(f, "Accept-Ranges: {}", v),
-            ResOnlyHttpHeader::Age(v) => write!(f, "Age: {}", v),
-            ResOnlyHttpHeader::ETag(v) => write!(f, "ETag: {}", v),
-            ResOnlyHttpHeader::Location(v) => write!(f, "Location: {}", v),
-            ResOnlyHttpHeader::ProxyAuthenticate(v) => write!(f, "Proxy-Authenticate: {}", v),
-            ResOnlyHttpHeader::RetryAfter(v) => write!(f, "Retry-After: {}", v),
-            ResOnlyHttpHeader::Server(v) => write!(f, "Server: {}", v),
-            ResOnlyHttpHeader::Vary(v) => write!(f, "Vary: {}", v),
-            ResOnlyHttpHeader::WWWAuthenticate(v) => write!(f, "WWW-Authenticate: {}", v),
+            ResOnlyHeader::AcceptRanges => write!(f, "Accept-Ranges"),
+            ResOnlyHeader::Age => write!(f, "Age"),
+            ResOnlyHeader::ETag => write!(f, "ETag"),
+            ResOnlyHeader::Location => write!(f, "Location"),
+            ResOnlyHeader::ProxyAuthenticate => write!(f, "Proxy-Authenticate"),
+            ResOnlyHeader::RetryAfter => write!(f, "Retry-After"),
+            ResOnlyHeader::Server => write!(f, "Server"),
+            ResOnlyHeader::Vary => write!(f, "Vary"),
+            ResOnlyHeader::WWWAuthenticate => write!(f, "WWW-Authenticate"),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum EntityHttpHeader {
-    Allow(HttpHeaderValue),
-    ContentEncoding(HttpHeaderValue),
-    ContentLanguage(HttpHeaderValue),
-    ContentLength(HttpHeaderValue),
-    ContentLocation(HttpHeaderValue),
-    ContentMD5(HttpHeaderValue),
-    ContentRange(HttpHeaderValue),
-    ContentType(HttpHeaderValue),
-    Expires(HttpHeaderValue),
-    LastModified(HttpHeaderValue),
+pub enum EntityHeader {
+    Allow,
+    ContentEncoding,
+    ContentLanguage,
+    ContentLength,
+    ContentLocation,
+    ContentMD5,
+    ContentRange,
+    ContentType,
+    Expires,
+    LastModified,
 }
 
-impl Display for EntityHttpHeader {
+impl Display for EntityHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            EntityHttpHeader::Allow(v) => write!(f, "Allow: {}", v),
-            EntityHttpHeader::ContentEncoding(v) => write!(f, "Content-Encoding: {}", v),
-            EntityHttpHeader::ContentLanguage(v) => write!(f, "Content-Language: {}", v),
-            EntityHttpHeader::ContentLength(v) => write!(f, "Content-Length: {}", v),
-            EntityHttpHeader::ContentLocation(v) => write!(f, "Content-Location: {}", v),
-            EntityHttpHeader::ContentMD5(v) => write!(f, "Content-MD5: {}", v),
-            EntityHttpHeader::ContentRange(v) => write!(f, "Content-Range: {}", v),
-            EntityHttpHeader::ContentType(v) => write!(f, "Content-Type: {}", v),
-            EntityHttpHeader::Expires(v) => write!(f, "Expires: {}", v),
-            EntityHttpHeader::LastModified(v) => write!(f, "Last-Modified: {}", v),
+            EntityHeader::Allow => write!(f, "Allow"),
+            EntityHeader::ContentEncoding => write!(f, "Content-Encoding"),
+            EntityHeader::ContentLanguage => write!(f, "Content-Language"),
+            EntityHeader::ContentLength => write!(f, "Content-Length"),
+            EntityHeader::ContentLocation => write!(f, "Content-Location"),
+            EntityHeader::ContentMD5 => write!(f, "Content-MD5"),
+            EntityHeader::ContentRange => write!(f, "Content-Range"),
+            EntityHeader::ContentType => write!(f, "Content-Type"),
+            EntityHeader::Expires => write!(f, "Expires"),
+            EntityHeader::LastModified => write!(f, "Last-Modified"),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum HttpReqHeader {
-    GeneralHeader(GeneralHttpHeader),
-    ReqHeader(ReqOnlyHttpHeader),
-    Other(String, String),
+pub enum ReqHeader {
+    GeneralHeader(GeneralHeader),
+    ReqOnly(ReqOnlyHeader),
+    Other(String),
 }
 
-impl Display for HttpReqHeader {
+impl Display for ReqHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            HttpReqHeader::GeneralHeader(h) => write!(f, "{}", h),
-            HttpReqHeader::ReqHeader(h) => write!(f, "{}", h),
-            HttpReqHeader::Other(name, value) => write!(f, "{}: {}", name, value),
+            ReqHeader::GeneralHeader(h) => write!(f, "{}", h),
+            ReqHeader::ReqOnly(h) => write!(f, "{}", h),
+            ReqHeader::Other(name) => write!(f, "{}", name),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum HttpResHeader {
-    GeneralHeader(GeneralHttpHeader),
-    ResHeader(ResOnlyHttpHeader),
-    Other(String, String),
+pub enum ResHeader {
+    GeneralHeader(GeneralHeader),
+    ResOnlyHeader(ResOnlyHeader),
+    EntityHeader(EntityHeader),
+    Other(String),
 }
 
-impl Display for HttpResHeader {
+impl Display for ResHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            HttpResHeader::GeneralHeader(h) => write!(f, "{}", h),
-            HttpResHeader::ResHeader(h) => write!(f, "{}", h),
-            HttpResHeader::Other(name, value) => write!(f, "{}: {}", name, value),
+            ResHeader::GeneralHeader(h) => write!(f, "{}", h),
+            ResHeader::ResOnlyHeader(h) => write!(f, "{}", h),
+            ResHeader::EntityHeader(h) => write!(f, "{}", h),
+            ResHeader::Other(name) => write!(f, "{}", name),
         }
     }
 }

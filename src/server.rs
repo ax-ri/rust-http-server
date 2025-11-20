@@ -1,9 +1,7 @@
-use crate::http_req::{HttpHeaderValue, HttpReq};
-use crate::http_res::HttpRes;
+use crate::http_req::HttpReq;
 use crate::req_parser::HttpReqHeadParser;
-use std::collections::HashSet;
 
-use crate::http_header::{HttpResHeader, ResOnlyHttpHeader};
+use crate::res_builder::ResBuilder;
 use log::{debug, error, info};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
@@ -77,13 +75,9 @@ fn handle_client(stream: &mut TcpStream) {
 fn serve_req(req: HttpReq, stream: &mut TcpStream) {
     debug!("handling request");
 
-    let mut res_headers = HashSet::new();
-    res_headers.insert(HttpResHeader::ResHeader(ResOnlyHttpHeader::Server(
-        HttpHeaderValue::Plain(String::from("Me")),
-    )));
-    let res_body = String::from("hello!");
+    let mut res_builder = ResBuilder::new(&req);
+    let res = res_builder.do_build().expect("Cannot build response");
 
-    let res = HttpRes::new(req.version(), 200, res_headers, Some(res_body));
     println!("RESPONSE:\n{:?}", res.to_string());
     stream
         .write_all(res.to_string().as_bytes())

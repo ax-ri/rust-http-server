@@ -1,13 +1,11 @@
 //! HTTP request parsing.
 
-use crate::http_req::{
-    HttpHeaderValue, HttpReqHead, HttpReqHeader, HttpReqTarget, ReqOnlyHttpHeader,
-};
+use crate::http_req::{HeaderValue, HttpReqHead, HttpReqTarget, ReqHeader, ReqOnlyHeader};
 
 use regex::Regex;
 
 use std::cmp::PartialEq;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 struct RawHttpReqHead {
@@ -34,7 +32,7 @@ enum HttpReqHeadParserState {
 }
 
 #[derive(Debug)]
-pub enum HttpReqHeadParsingError {
+pub enum ReqHeadParsingError {
     InvalidFirstLine,
     InvalidHeader,
 }
@@ -58,11 +56,11 @@ impl HttpReqHeadParser {
         self.state == HttpReqHeadParserState::Done
     }
 
-    pub fn process_line(&mut self, line: &str) -> Result<(), HttpReqHeadParsingError> {
+    pub fn process_line(&mut self, line: &str) -> Result<(), ReqHeadParsingError> {
         match self.state {
             HttpReqHeadParserState::RequestLine => {
                 if line.is_empty() {
-                    Err(HttpReqHeadParsingError::InvalidFirstLine)
+                    Err(ReqHeadParsingError::InvalidFirstLine)
                 } else {
                     self.raw_req_head.request_line = String::from(line);
                     self.state = HttpReqHeadParserState::Headers;
@@ -91,7 +89,7 @@ impl HttpReqHeadParser {
                         [value] => {
                             // error if there is no previous header
                             if self.raw_req_head.last_header_name.is_empty() {
-                                Err(HttpReqHeadParsingError::InvalidHeader)
+                                Err(ReqHeadParsingError::InvalidHeader)
                             } else {
                                 self.raw_req_head
                                     .headers
@@ -101,7 +99,7 @@ impl HttpReqHeadParser {
                                 Ok(())
                             }
                         }
-                        _ => Err(HttpReqHeadParsingError::InvalidHeader),
+                        _ => Err(ReqHeadParsingError::InvalidHeader),
                     }
                 }
             }
@@ -111,11 +109,12 @@ impl HttpReqHeadParser {
         }
     }
 
-    pub fn do_parse(&mut self) -> Result<HttpReqHead, HttpReqHeadParsingError> {
+    pub fn do_parse(&mut self) -> Result<HttpReqHead, ReqHeadParsingError> {
         let (verb, target, version) = parse_first_line(&self.raw_req_head.request_line)?;
-        let mut headers = HashSet::new();
+        let mut headers = HashMap::new();
         for (name, value) in &self.raw_req_head.headers {
-            headers.insert(parse_header(name, value)?);
+            let (name, value) = parse_header(name, value)?;
+            headers.insert(name, value);
         }
         Ok(HttpReqHead::new(verb, target, version, headers))
     }
@@ -128,64 +127,90 @@ impl HttpReqHeadParser {
 }
 
 /// Parse the first line of an HTTP request (e.g. GET /foo/bar HTTP/1.1)
-fn parse_first_line(
-    line: &str,
-) -> Result<(String, HttpReqTarget, String), HttpReqHeadParsingError> {
+fn parse_first_line(line: &str) -> Result<(String, HttpReqTarget, String), ReqHeadParsingError> {
     let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<target>.+) HTTP/(?<version>[\d.]+)")
         .expect("Cannot build request line parser");
     let caps = re
         .captures(line)
-        .ok_or(HttpReqHeadParsingError::InvalidFirstLine)?;
+        .ok_or(ReqHeadParsingError::InvalidFirstLine)?;
     Ok((
         caps["verb"]
             .parse()
-            .map_err(|_| HttpReqHeadParsingError::InvalidFirstLine)?,
+            .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?,
         match &caps["target"] {
             "*" => HttpReqTarget::Other(String::from("*")),
             path => HttpReqTarget::Path(PathBuf::from(path)),
         },
         caps["version"]
             .parse()
-            .map_err(|_| HttpReqHeadParsingError::InvalidFirstLine)?,
+            .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?,
     ))
 }
 
-fn parse_header(name: &str, value: &str) -> Result<HttpReqHeader, HttpReqHeadParsingError> {
+fn parse_header(name: &str, value: &str) -> Result<(ReqHeader, HeaderValue), ReqHeadParsingError> {
     match (name, value) {
-        ("accept", value) => parse_header_value(value)
-            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::Accept(v))),
-        ("accept-charset", value) => parse_header_value(value)
-            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::AcceptCharset(v))),
+        // general headers
+        ("cache-control", _value) => todo!(),
+        ("connection", _value) => todo!(),
+        ("date", _value) => todo!(),
+        ("pragma", _value) => todo!(),
+        ("trailer", _value) => todo!(),
+        ("transfer-encoding", _value) => todo!(),
+        ("upgrade", _value) => todo!(),
+        ("via", _value) => todo!(),
+        ("warning", _value) => todo!(),
+        // req only headers
+        ("accept", value) => {
+            parse_header_value(value).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Accept), v))
+        }
+        ("accept-charset", value) => {
+            parse_header_value(value).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptCharset), v))
+        }
         ("accept-encoding", value) => parse_header_value(value)
-            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::AcceptEncoding(v))),
+            .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptEncoding), v)),
         ("accept-language", value) => parse_header_value(value)
-            .map(|v| HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::AcceptLanguage(v))),
-        ("host", value) => Ok(HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::Host(
-            HttpHeaderValue::Plain(String::from(value)),
-        ))),
-        ("user-agent", value) => Ok(HttpReqHeader::ReqHeader(ReqOnlyHttpHeader::UserAgent(
-            HttpHeaderValue::Plain(String::from(value)),
-        ))),
-        (name, value) => Ok(HttpReqHeader::Other(
-            String::from(name),
-            String::from(value),
+            .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptLanguage), v)),
+        ("authorization", _value) => todo!(),
+        ("expect", _value) => todo!(),
+        ("from", _value) => todo!(),
+        ("host", value) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::Host),
+            HeaderValue::Plain(String::from(value)),
+        )),
+        ("if-match", _value) => todo!(),
+        ("if-modified-since", _value) => todo!(),
+        ("if-none-match", _value) => todo!(),
+        ("if-range", _value) => todo!(),
+        ("if-unmodified-since", _value) => todo!(),
+        ("max-forwards", _value) => todo!(),
+        ("proxy-authorization", _value) => todo!(),
+        ("range", _value) => todo!(),
+        ("referer", _value) => todo!(),
+        ("te", _value) => todo!(),
+        ("user-agent", value) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::UserAgent),
+            HeaderValue::Plain(String::from(value)),
+        )),
+        (name, value) => Ok((
+            ReqHeader::Other(String::from(name)),
+            HeaderValue::Plain(String::from(value)),
         )),
     }
 }
 
 /// Parse a header value that is made of a list of comma-separated values.
-fn parse_header_value(value: &str) -> Result<HttpHeaderValue, HttpReqHeadParsingError> {
+fn parse_header_value(value: &str) -> Result<HeaderValue, ReqHeadParsingError> {
     let trimmed_value = value.replace(" ", "");
     let values = trimmed_value.split(",").collect::<Vec<_>>();
     if values.is_empty() {
-        return Err(HttpReqHeadParsingError::InvalidHeader);
+        return Err(ReqHeadParsingError::InvalidHeader);
     }
     println!("values {:?}", values);
     let values: Vec<(String, Vec<(String, String)>)> =
         values.iter().map(|m| parse_value_and_attr(m)).collect();
     match values.len() {
-        0 => Err(HttpReqHeadParsingError::InvalidHeader),
-        _ => Ok(HttpHeaderValue::Parsed(values)),
+        0 => Err(ReqHeadParsingError::InvalidHeader),
+        _ => Ok(HeaderValue::Parsed(values)),
     }
 }
 

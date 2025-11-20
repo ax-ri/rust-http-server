@@ -1,7 +1,7 @@
-//! Data structures for modeling an HTTP Request.
+//! Data structures for modeling an HTTP request.
 
-pub(crate) use crate::http_header::{HttpHeaderValue, HttpReqHeader, ReqOnlyHttpHeader};
-use std::collections::HashSet;
+pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
@@ -18,7 +18,7 @@ pub struct HttpReqHead {
     verb: String,
     target: HttpReqTarget,
     version: String,
-    headers: HashSet<HttpReqHeader>,
+    headers: HashMap<ReqHeader, HeaderValue>,
 }
 
 impl HttpReqHead {
@@ -26,7 +26,7 @@ impl HttpReqHead {
         verb: String,
         target: HttpReqTarget,
         version: String,
-        headers: HashSet<HttpReqHeader>,
+        headers: HashMap<ReqHeader, HeaderValue>,
     ) -> Self {
         Self {
             verb,
@@ -47,7 +47,7 @@ impl Display for HttpReqHead {
         .and(
             self.headers
                 .iter()
-                .try_for_each(|value| write!(f, "{:?}\r\n", value)),
+                .try_for_each(|(name, value)| write!(f, "{}: {}\r\n", name, value)),
         )
     }
 }
