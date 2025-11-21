@@ -3,6 +3,7 @@ use crate::req_parser::ReqHeadParser;
 
 use crate::http_res::HttpRes;
 use crate::res_builder::ResBuilder;
+use chrono::Utc;
 use log::{debug, error, info, warn};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
@@ -21,115 +22,186 @@ impl Server {
         // accept connections and process them serially
         loop {
             match self.listener.accept() {
-                Ok((mut stream, _addr)) => handle_client(&mut stream),
+                Ok((stream, _addr)) => {
+                    let mut handler = ClientHandler::new(stream);
+                    handler.handle();
+                }
                 Err(err) => error!("Cannot accept TCP connection, {:?}", err),
             }
         }
     }
 }
 
-fn handle_client(stream: &mut TcpStream) {
-    let peer_addr = stream.peer_addr().unwrap();
-    info!("Connection received from: {}", peer_addr);
+struct ClientHandler {
+    stream: TcpStream,
+    peer_addr: String,
+    current_req: Option<HttpReq>,
+}
 
-    // use a buffered reader to read the stream one line at a time
-    let mut buffered_stream = BufReader::new(stream.try_clone().expect("Cannot clone stream"));
+impl ClientHandler {
+    fn new(stream: TcpStream) -> Self {
+        let peer_addr = stream.peer_addr().unwrap().to_string();
+        Self {
+            stream,
+            peer_addr,
+            current_req: None,
+        }
+    }
 
-    let mut req_head_parser = ReqHeadParser::new();
+    fn handle(&mut self) {
+        info!("Connection received from: {}", self.peer_addr);
 
-    let mut connection_closed = false;
-    let mut invalid_request = false;
+        // use a buffered reader to read the stream one line at a time
+        let mut buf_reader = BufReader::new(self.stream.try_clone().expect("Cannot clone stream"));
 
-    while !connection_closed {
-        req_head_parser.reset();
-        let mut buf = String::new();
+        let mut req_head_parser = ReqHeadParser::new();
 
-        debug!("waiting for request head");
-        while !req_head_parser.is_complete() {
-            buf.clear();
-            if let Err(e) = buffered_stream.read_line(&mut buf) {
-                warn!("Cannot read line from buffered stream: {:?}", e);
-                connection_closed = true;
-                break;
-            };
+        let mut connection_closed = false;
+        let mut invalid_request = false;
 
-            if buf.is_empty() {
-                connection_closed = true;
+        while !connection_closed {
+            req_head_parser.reset();
+            let mut buf = String::new();
+
+            debug!("waiting for request head");
+            while !req_head_parser.is_complete() {
+                buf.clear();
+
+                // read one line from the stream
+                let result = buf_reader.read_line(&mut buf);
+                // handle connection closing
+                if let Err(e) = result {
+                    warn!("Cannot read line from buffered stream: {:?}", e);
+                    connection_closed = true;
+                    break;
+                };
+                if buf.is_empty() {
+                    connection_closed = true;
+                    break;
+                }
+
+                debug!("Received line: {:?}", buf);
+
+                // parse line as part of HTTP request head
+                if let Err(e) = req_head_parser.process_line(buf.trim()) {
+                    warn!("Cannot process line: {:?}", e);
+                    invalid_request = true;
+                    break;
+                }
+            }
+            if connection_closed {
                 break;
             }
-            debug!("Received line: {:?}", buf);
-            if let Err(e) = req_head_parser.process_line(buf.trim()) {
-                warn!("Cannot process line: {:?}", e);
-                invalid_request = true;
-                break;
+            if invalid_request {
+                self.serve_error(400);
+                continue;
             }
-        }
-        if connection_closed {
-            break;
-        }
-        if invalid_request {
-            serve_error(stream, 400);
-            continue;
-        }
-        debug!("done reading request head");
-        debug!("parsing request head");
-        match req_head_parser.do_parse() {
-            Ok(parsed_head) => {
-                debug!("request head parsing done");
-                debug!("REQUEST HEAD:{:?}", parsed_head);
 
-                let req = HttpReq::new(parsed_head);
-                serve_req(req, &mut *stream);
+            debug!("done reading request head");
+            debug!("parsing request head");
+            match req_head_parser.do_parse() {
+                Ok(parsed_head) => {
+                    debug!("request head parsing done");
+                    debug!("REQUEST HEAD:{:?}", parsed_head);
+
+                    self.current_req = Some(HttpReq::new(Utc::now(), parsed_head));
+                    self.serve_req();
+                }
+                Err(e) => {
+                    warn!("Error parsing request: {:?}", e);
+                    self.serve_error(400)
+                }
             }
-            Err(e) => {
-                warn!("Error parsing request: {:?}", e);
-                serve_error(stream, 400)
+        }
+
+        info!("Connection closed: {}", self.peer_addr);
+    }
+
+    fn serve_error(&mut self, status_code: u16) {
+        let mut res_builder = ResBuilder::new("1.1");
+        let res = res_builder.build_error(status_code);
+        self.send_response(res);
+    }
+
+    fn serve_req(&mut self) {
+        debug!("serving request");
+
+        let doc_root = Path::new("./htdocs");
+
+        match self.current_req.as_ref().unwrap().verb() {
+            "GET" => self.serve_static_resource(doc_root),
+            _ => self.serve_error(405),
+        };
+
+        debug!("request served");
+    }
+
+    fn serve_static_resource(&mut self, doc_root: &Path) {
+        let req = self.current_req.as_ref().unwrap();
+        let mut res_builder = ResBuilder::new(req.version());
+        match req.target() {
+            // target '*' not supported for get resource
+            ReqTarget::All => self.serve_error(400),
+            // serve target from path
+            ReqTarget::Path(p, _) => {
+                // convert target resource path to ile system path
+                let mut full_path = String::from(doc_root.to_str().unwrap());
+                full_path.push_str(p);
+                let full_path = Path::new(&full_path);
+
+                // prevent path traversal: the resource path must be a sub-path of the doc root
+                if !full_path.starts_with(doc_root) {
+                    self.serve_error(403);
+                    return;
+                }
+
+                // prevent directory listing
+                if full_path.is_dir() {
+                    self.serve_error(403);
+                    return;
+                }
+
+                match res_builder.set_file_body(full_path) {
+                    Ok(()) => {
+                        let res = res_builder.do_build();
+                        self.send_response(res)
+                    }
+                    Err(err) => {
+                        debug!("error reading file: {:?}", err);
+                        match err.kind() {
+                            std::io::ErrorKind::NotFound => self.serve_error(404),
+                            std::io::ErrorKind::PermissionDenied => self.serve_error(403),
+                            _ => self.serve_error(500),
+                        }
+                    }
+                }
             }
         }
     }
 
-    info!("Connection closed: {}", peer_addr);
-}
+    fn send_response(&mut self, res: &HttpRes) {
+        info!(
+            r#"{} - - [{}] "{}" {} {}"#,
+            self.peer_addr,
+            self.current_req.as_ref().map_or(String::new(), |r| r
+                .date()
+                .format("%d/%b/%Y:%H:%M:%S %z")
+                .to_string()),
+            self.current_req
+                .as_ref()
+                .map_or(String::new(), |r| r.first_line()),
+            res.status_code(),
+            res.body_len()
+        );
 
-fn serve_error(stream: &mut TcpStream, status_code: u16) {
-    let mut res_builder = ResBuilder::new("1.1");
-    send_response(stream, res_builder.build_error(status_code));
-}
-
-fn serve_req(req: HttpReq, stream: &mut TcpStream) {
-    debug!("serving request");
-
-    let doc_root = String::from("./htdocs");
-
-    let mut res_builder = ResBuilder::new(req.version());
-    let res = match req.verb() {
-        "GET" => match req.target() {
-            ReqTarget::Path(p) => {
-                let full_path = doc_root + p;
-                match res_builder.set_file_body(Path::new(&full_path)) {
-                    Ok(()) => res_builder.do_build(),
-                    Err(e) => {
-                        debug!("error reading file: {:?}", e);
-                        res_builder.build_error(404)
-                    }
-                }
-            }
-            _ => res_builder.build_error(400),
-        },
-        _ => res_builder.build_error(405),
-    };
-
-    send_response(stream, res);
-
-    debug!("request served");
-}
-
-fn send_response(stream: &mut TcpStream, res: &HttpRes) {
-    let (res_head, res_body) = res.to_bytes();
-    stream
-        .write_all(&res_head)
-        .expect("Cannot write response head");
-    if let Some(body) = res_body {
-        stream.write_all(body).expect("Cannot write response body");
+        let (res_head, res_body) = res.to_bytes();
+        self.stream
+            .write_all(&res_head)
+            .expect("Cannot write response head");
+        if let Some(body) = res_body {
+            self.stream
+                .write_all(body)
+                .expect("Cannot write response body");
+        }
     }
 }

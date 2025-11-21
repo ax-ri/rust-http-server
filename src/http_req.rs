@@ -1,15 +1,25 @@
 //! Data structures for modeling an HTTP request.
 
 pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
 pub enum ReqTarget {
     All,
-    Path(String),
+    // path (url-decoded, original)
+    Path(String, String),
+}
+
+impl Display for ReqTarget {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReqTarget::All => write!(f, "*"),
+            ReqTarget::Path(_, original) => write!(f, "{}", original),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -54,12 +64,17 @@ impl Display for ReqHead {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct HttpReq {
+    date: DateTime<Utc>,
     head: ReqHead,
 }
 
 impl HttpReq {
-    pub fn new(head: ReqHead) -> Self {
-        Self { head }
+    pub fn new(date: DateTime<Utc>, head: ReqHead) -> Self {
+        Self { date, head }
+    }
+
+    pub fn date(&self) -> &DateTime<Utc> {
+        &self.date
     }
 
     pub fn version(&self) -> &str {
@@ -72,5 +87,12 @@ impl HttpReq {
 
     pub fn target(&self) -> &ReqTarget {
         &self.head.target
+    }
+
+    pub fn first_line(&self) -> String {
+        format!(
+            "{} {} HTTP/{}",
+            self.head.verb, self.head.target, self.head.version
+        )
     }
 }

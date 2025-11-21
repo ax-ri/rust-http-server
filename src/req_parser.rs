@@ -139,7 +139,12 @@ fn parse_first_line(line: &str) -> Result<(String, ReqTarget, String), ReqHeadPa
             .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?,
         match &caps["target"] {
             "*" => ReqTarget::All,
-            path => ReqTarget::Path(String::from(path)),
+            path => ReqTarget::Path(
+                urlencoding::decode(path)
+                    .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?
+                    .into_owned(),
+                String::from(path),
+            ),
         },
         caps["version"]
             .parse()
@@ -150,52 +155,112 @@ fn parse_first_line(line: &str) -> Result<(String, ReqTarget, String), ReqHeadPa
 fn parse_header(name: &str, value: &str) -> Result<(ReqHeader, HeaderValue), ReqHeadParsingError> {
     match (name, value) {
         // general headers
-        ("cache-control", _value) => todo!(),
+        ("cache-control", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::CacheControl),
+            HeaderValue::Plain(String::from(v)),
+        )),
         ("connection", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Connection),
             HeaderValue::Plain(String::from(v)),
         )),
-        ("date", _value) => todo!(),
-        ("pragma", _value) => todo!(),
-        ("trailer", _value) => todo!(),
-        ("transfer-encoding", _value) => todo!(),
-        ("upgrade", _value) => todo!(),
-        ("via", _value) => todo!(),
-        ("warning", _value) => todo!(),
+        ("date", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::Date),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("pragma", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::Pragma),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("trailer", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::Trailer),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("transfer-encoding", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::TransferEncoding),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("upgrade", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::Upgrade),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("via", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::Via),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("warning", v) => Ok((
+            ReqHeader::GeneralHeader(GeneralHeader::Warning),
+            HeaderValue::Plain(String::from(v)),
+        )),
         // req only headers
-        ("accept", value) => {
-            parse_header_value(value).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Accept), v))
+        ("accept", v) => {
+            parse_header_value(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Accept), v))
         }
-        ("accept-charset", value) => {
-            parse_header_value(value).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptCharset), v))
+        ("accept-charset", v) => {
+            parse_header_value(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptCharset), v))
         }
         ("accept-encoding", value) => parse_header_value(value)
             .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptEncoding), v)),
         ("accept-language", value) => parse_header_value(value)
             .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptLanguage), v)),
-        ("authorization", _value) => todo!(),
-        ("expect", _value) => todo!(),
-        ("from", _value) => todo!(),
-        ("host", value) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::Host),
-            HeaderValue::Plain(String::from(value)),
+        ("authorization", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::Authorization),
+            HeaderValue::Plain(String::from(v)),
         )),
-        ("if-match", _value) => todo!(),
-        ("if-modified-since", _value) => todo!(),
-        ("if-none-match", _value) => todo!(),
-        ("if-range", _value) => todo!(),
-        ("if-unmodified-since", _value) => todo!(),
-        ("max-forwards", _value) => todo!(),
-        ("proxy-authorization", _value) => todo!(),
-        ("range", _value) => todo!(),
+        ("expect", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::Expect),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("from", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::From),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("host", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::Host),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("if-match", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::IfMatch),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("if-modified-since", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::IfModifiedSince),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("if-none-match", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::IfNoneMatch),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("if-range", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::IfRange),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("if-unmodified-since", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::IfUnmodifiedSince),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("max-forwards", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::MaxForwards),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("proxy-authorization", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::ProxyAuthorization),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("range", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::Range),
+            HeaderValue::Plain(String::from(v)),
+        )),
         ("referer", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Referer),
             HeaderValue::Plain(String::from(v)),
         )),
-        ("te", _value) => todo!(),
-        ("user-agent", value) => Ok((
+        ("te", v) => Ok((
+            ReqHeader::ReqOnly(ReqOnlyHeader::TE),
+            HeaderValue::Plain(String::from(v)),
+        )),
+        ("user-agent", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::UserAgent),
-            HeaderValue::Plain(String::from(value)),
+            HeaderValue::Plain(String::from(v)),
         )),
         (name, value) => Ok((
             ReqHeader::Other(String::from(name)),

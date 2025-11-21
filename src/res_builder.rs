@@ -1,7 +1,7 @@
 use crate::http_header::{EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader};
+use crate::http_res;
 use crate::http_res::HttpRes;
 use mime_guess::MimeGuess;
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -33,18 +33,16 @@ impl ResBuilder {
 
     pub fn build_error(&mut self, status_code: u16) -> &HttpRes {
         self.res.set_status(status_code);
-        self.res
-            .set_body(Some(format!("Error {}", status_code).into_bytes()));
+        let message = format!(
+            r##"<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /></head><body><h1>{} {}</h1></body></html>"##,
+            status_code,
+            http_res::get_reason_phrase(status_code)
+        );
+        self.res.set_body(Some(message.into_bytes()));
         self.do_build()
     }
 
     pub fn do_build(&mut self) -> &HttpRes {
-        let mut res_headers = HashMap::new();
-        res_headers.insert(
-            ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
-            HeaderValue::Plain(String::from("Me")),
-        );
-
         // set date if not already present
         if !self
             .res
