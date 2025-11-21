@@ -6,16 +6,24 @@ use crate::res_builder::ResBuilder;
 use chrono::Utc;
 use log::{debug, error, info, warn};
 use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-use std::path::Path;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug)]
+pub struct Settings {
+    pub address: SocketAddr,
+    pub document_root: PathBuf,
+    pub allow_dir_listing: bool,
+}
 
 pub struct Server {
     listener: TcpListener,
+    settings: Settings,
 }
 
 impl Server {
-    pub fn new<A: ToSocketAddrs>(addr: A) -> Result<Self, std::io::Error> {
-        TcpListener::bind(addr).map(|listener| Self { listener })
+    pub fn new(settings: Settings) -> Result<Self, std::io::Error> {
+        TcpListener::bind(settings.address).map(|listener| Self { listener, settings })
     }
 
     pub fn listen(&mut self) {
@@ -23,7 +31,7 @@ impl Server {
         loop {
             match self.listener.accept() {
                 Ok((stream, _addr)) => {
-                    let mut handler = ClientHandler::new(stream);
+                    let mut handler = ClientHandler::new(&self.settings, stream);
                     handler.handle();
                 }
                 Err(err) => error!("Cannot accept TCP connection, {:?}", err),
@@ -32,16 +40,18 @@ impl Server {
     }
 }
 
-struct ClientHandler {
+struct ClientHandler<'a> {
+    settings: &'a Settings,
     stream: TcpStream,
     peer_addr: String,
     current_req: Option<HttpReq>,
 }
 
-impl ClientHandler {
-    fn new(stream: TcpStream) -> Self {
+impl<'a> ClientHandler<'a> {
+    fn new(settings: &'a Settings, stream: TcpStream) -> Self {
         let peer_addr = stream.peer_addr().unwrap().to_string();
         Self {
+            settings,
             stream,
             peer_addr,
             current_req: None,
@@ -102,7 +112,7 @@ impl ClientHandler {
             match req_head_parser.do_parse() {
                 Ok(parsed_head) => {
                     debug!("request head parsing done");
-                    debug!("REQUEST HEAD:{:?}", parsed_head);
+                    dbg!("REQUEST HEAD:{:?}", &parsed_head);
 
                     self.current_req = Some(HttpReq::new(Utc::now(), parsed_head));
                     self.serve_req();
@@ -126,38 +136,53 @@ impl ClientHandler {
     fn serve_req(&mut self) {
         debug!("serving request");
 
-        let doc_root = Path::new("./htdocs");
-
         match self.current_req.as_ref().unwrap().verb() {
-            "GET" => self.serve_static_resource(doc_root),
+            "GET" => self.serve_static_resource(),
             _ => self.serve_error(405),
         };
 
         debug!("request served");
     }
 
-    fn serve_static_resource(&mut self, doc_root: &Path) {
+    fn serve_static_resource(&mut self) {
         let req = self.current_req.as_ref().unwrap();
         let mut res_builder = ResBuilder::new(req.version());
         match req.target() {
             // target '*' not supported for get resource
             ReqTarget::All => self.serve_error(400),
             // serve target from path
-            ReqTarget::Path(p, _) => {
+            ReqTarget::Path(path, _) => {
                 // convert target resource path to ile system path
-                let mut full_path = String::from(doc_root.to_str().unwrap());
-                full_path.push_str(p);
+                let mut full_path = String::from(self.settings.document_root.to_str().unwrap());
+                full_path.push_str(path);
                 let full_path = Path::new(&full_path);
 
                 // prevent path traversal: the resource path must be a sub-path of the doc root
-                if !full_path.starts_with(doc_root) {
+                if !full_path.starts_with(self.settings.document_root.as_path()) {
                     self.serve_error(403);
                     return;
                 }
 
-                // prevent directory listing
+                // prevent directory listing by default
                 if full_path.is_dir() {
-                    self.serve_error(403);
+                    if self.settings.allow_dir_listing {
+                        match res_builder.list_directory(full_path, path) {
+                            Ok(()) => {
+                                let res = res_builder.do_build();
+                                self.send_response(res)
+                            }
+                            Err(err) => {
+                                debug!("error reading directory: {:?}", err);
+                                match err.kind() {
+                                    std::io::ErrorKind::NotFound => self.serve_error(404),
+                                    std::io::ErrorKind::PermissionDenied => self.serve_error(403),
+                                    _ => self.serve_error(500),
+                                }
+                            }
+                        }
+                    } else {
+                        self.serve_error(403);
+                    }
                     return;
                 }
 
@@ -181,27 +206,28 @@ impl ClientHandler {
 
     fn send_response(&mut self, res: &HttpRes) {
         info!(
-            r#"{} - - [{}] "{}" {} {}"#,
+            "{} - - {} {} {} {}",
             self.peer_addr,
-            self.current_req.as_ref().map_or(String::new(), |r| r
+            self.current_req.as_ref().map_or(String::from("-"), |r| r
                 .date()
-                .format("%d/%b/%Y:%H:%M:%S %z")
+                .format("[%d/%b/%Y:%H:%M:%S %z]")
                 .to_string()),
             self.current_req
                 .as_ref()
-                .map_or(String::new(), |r| r.first_line()),
+                .map_or(String::from("-"), |r| format!(r#""{}""#, r.first_line())),
             res.status_code(),
             res.body_len()
         );
 
         let (res_head, res_body) = res.to_bytes();
-        self.stream
-            .write_all(&res_head)
-            .expect("Cannot write response head");
+        if let Err(e) = self.stream.write_all(&res_head) {
+            warn!("Cannot write response head: {:?}", e);
+        }
         if let Some(body) = res_body {
-            self.stream
-                .write_all(body)
-                .expect("Cannot write response body");
+            #[allow(clippy::collapsible_if)]
+            if let Err(e) = self.stream.write_all(body) {
+                warn!("Cannot write response body: {:?}", e);
+            }
         }
     }
 }
