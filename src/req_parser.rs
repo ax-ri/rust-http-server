@@ -10,7 +10,7 @@ use std::collections::HashMap;
 struct RawReqHead {
     request_line: AsciiString,
     headers: HashMap<AsciiString, AsciiString>,
-    last_header_name: AsciiString,
+    last_header_name: Option<AsciiString>,
 }
 
 impl RawReqHead {
@@ -18,7 +18,7 @@ impl RawReqHead {
         Self {
             request_line: AsciiString::new(),
             headers: HashMap::new(),
-            last_header_name: AsciiString::new(),
+            last_header_name: None,
         }
     }
 }
@@ -101,29 +101,29 @@ impl ReqHeadParser {
                             }
 
                             // header names should be treated case-insensitive
-                            let name = AsciiString::from(name).to_ascii_lowercase();
+                            let name = AsciiString::from(name.trim()).to_ascii_lowercase();
                             self.raw_req_head
                                 .headers
                                 .entry(name.clone())
                                 .or_default()
-                                .push_str(value.trim_start());
-                            self.raw_req_head.last_header_name = name;
+                                .push_str(value.trim());
+                            self.raw_req_head.last_header_name = Some(name);
                             Ok(())
                         }
                         // if the line has no ':', then it may be the previous header line continued
                         None => {
-                            // error if there is no previous header
-                            if self.raw_req_head.last_header_name.is_empty() {
+                            if let Some(name) = self.raw_req_head.last_header_name.as_ref() {
+                                self.raw_req_head
+                                    .headers
+                                    .entry(name.clone())
+                                    .or_default()
+                                    .push_str(line.trim());
+                                Ok(())
+                            } else {
+                                // error if there is no previous header
                                 Err(ReqHeadParsingError::InvalidHeader(
                                     HeaderParsingError::NoColon,
                                 ))
-                            } else {
-                                self.raw_req_head
-                                    .headers
-                                    .entry(self.raw_req_head.last_header_name.clone())
-                                    .or_default()
-                                    .push_str(line);
-                                Ok(())
                             }
                         }
                     }
