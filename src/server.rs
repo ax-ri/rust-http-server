@@ -1,5 +1,6 @@
 use crate::http_req::{HttpReq, ReqTarget, ReqVerb};
 use crate::req_parser::ReqHeadParser;
+use std::io::Read;
 
 use crate::http_res::HttpRes;
 use crate::res_builder::ResBuilder;
@@ -76,8 +77,12 @@ impl<'a> ClientHandler<'a> {
             debug!("waiting for request head");
             while !req_head_parser.is_complete() {
                 // read one line from the stream
+                // with a maximum limit on bytes read (8000)
                 let mut line: Vec<u8> = Vec::new();
-                let result = buf_reader.read_until(b'\n', &mut line);
+                let mut handle = buf_reader.take(8000);
+                let result = handle.read_until(b'\n', &mut line);
+                buf_reader = handle.into_inner();
+
                 // handle connection closing
                 if let Err(e) = result {
                     warn!("Cannot read line from buffered stream: {:?}", e);
