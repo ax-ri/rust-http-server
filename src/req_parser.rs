@@ -31,9 +31,24 @@ enum ReqHeadParserState {
 }
 
 #[derive(Debug)]
+pub enum FirstLineParsingError {
+    EmptyLine,
+    InvalidFieldCount,
+    InvalidVerb,
+    InvalidTargetEncoding,
+}
+
+#[derive(Debug)]
+pub enum HeaderParsingError {
+    NoColon,
+    SpaceBeforeColon,
+    NoComponent,
+}
+
+#[derive(Debug)]
 pub enum ReqHeadParsingError {
-    InvalidFirstLine,
-    InvalidHeader,
+    InvalidFirstLine(FirstLineParsingError),
+    InvalidHeader(HeaderParsingError),
 }
 
 pub struct ReqHeadParser {
@@ -59,7 +74,9 @@ impl ReqHeadParser {
         match self.state {
             ReqHeadParserState::RequestLine => {
                 if line.is_empty() {
-                    Err(ReqHeadParsingError::InvalidFirstLine)
+                    Err(ReqHeadParsingError::InvalidFirstLine(
+                        FirstLineParsingError::EmptyLine,
+                    ))
                 } else {
                     self.raw_req_head.request_line = AsciiString::from(line);
                     self.state = ReqHeadParserState::Headers;
@@ -75,6 +92,13 @@ impl ReqHeadParser {
                         // typical name: value header line
                         Some(colon_idx) => {
                             let (name, value) = (&line[..colon_idx], &line[colon_idx + 1..]);
+                            dbg!(name);
+
+                            if let Some(AsciiChar::Space) = name.last() {
+                                return Err(ReqHeadParsingError::InvalidHeader(
+                                    HeaderParsingError::SpaceBeforeColon,
+                                ));
+                            }
 
                             // header names should be treated case-insensitive
                             let name = AsciiString::from(name).to_ascii_lowercase();
@@ -90,7 +114,9 @@ impl ReqHeadParser {
                         None => {
                             // error if there is no previous header
                             if self.raw_req_head.last_header_name.is_empty() {
-                                Err(ReqHeadParsingError::InvalidHeader)
+                                Err(ReqHeadParsingError::InvalidHeader(
+                                    HeaderParsingError::NoColon,
+                                ))
                             } else {
                                 self.raw_req_head
                                     .headers
@@ -136,14 +162,18 @@ fn parse_first_line(
             parse_http_target(target)?,
             AsciiString::from(version),
         )),
-        _ => Err(ReqHeadParsingError::InvalidFirstLine),
+        _ => Err(ReqHeadParsingError::InvalidFirstLine(
+            FirstLineParsingError::InvalidFieldCount,
+        )),
     }
 }
 
 fn parse_http_verb(verb: &AsciiStr) -> Result<ReqVerb, ReqHeadParsingError> {
     match verb.as_bytes() {
         b"GET" => Ok(ReqVerb::Get),
-        _ => Err(ReqHeadParsingError::InvalidFirstLine),
+        _ => Err(ReqHeadParsingError::InvalidFirstLine(
+            FirstLineParsingError::InvalidVerb,
+        )),
     }
 }
 
@@ -152,7 +182,11 @@ fn parse_http_target(target: &AsciiStr) -> Result<ReqTarget, ReqHeadParsingError
         b"*" => Ok(ReqTarget::All),
         _ => Ok(ReqTarget::Path(
             urlencoding::decode(target.as_str())
-                .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?
+                .map_err(|_| {
+                    ReqHeadParsingError::InvalidFirstLine(
+                        FirstLineParsingError::InvalidTargetEncoding,
+                    )
+                })?
                 .into_owned(),
             AsciiString::from(target),
         )),
@@ -284,12 +318,16 @@ fn parse_header_value(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingErr
     let trimmed_value = value; //.replace(" ", "");
     let values = trimmed_value.split(AsciiChar::Comma).collect::<Vec<_>>();
     if values.is_empty() {
-        return Err(ReqHeadParsingError::InvalidHeader);
+        return Err(ReqHeadParsingError::InvalidHeader(
+            HeaderParsingError::NoComponent,
+        ));
     }
     let values: Vec<(AsciiString, Vec<(AsciiString, AsciiString)>)> =
         values.iter().map(|m| parse_value_and_attr(m)).collect();
     match values.len() {
-        0 => Err(ReqHeadParsingError::InvalidHeader),
+        0 => Err(ReqHeadParsingError::InvalidHeader(
+            HeaderParsingError::NoComponent,
+        )),
         _ => Ok(HeaderValue::Parsed(values)),
     }
 }

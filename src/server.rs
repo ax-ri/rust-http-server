@@ -1,5 +1,5 @@
 use crate::http_req::{HttpReq, ReqTarget, ReqVerb};
-use crate::req_parser::ReqHeadParser;
+use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
 use std::io::Read;
 
 use crate::http_res::HttpRes;
@@ -69,7 +69,7 @@ impl<'a> ClientHandler<'a> {
         let mut req_head_parser = ReqHeadParser::new();
 
         let mut connection_closed = false;
-        let mut invalid_request = false;
+        let mut req_parsing_error = None;
 
         while !connection_closed {
             req_head_parser.reset();
@@ -99,16 +99,15 @@ impl<'a> ClientHandler<'a> {
 
                 // parse line as part of HTTP request head
                 if let Err(e) = req_head_parser.process_line(ascii_line.trim()) {
-                    warn!("Cannot process line: {:?}", e);
-                    invalid_request = true;
+                    req_parsing_error = Some(e);
                     break;
                 }
             }
             if connection_closed {
                 break;
             }
-            if invalid_request {
-                self.serve_error(400);
+            if let Some(e) = req_parsing_error.as_ref() {
+                self.handle_req_parsing_error(e);
                 continue;
             }
 
@@ -122,14 +121,23 @@ impl<'a> ClientHandler<'a> {
                     self.current_req = Some(HttpReq::new(Utc::now(), parsed_head));
                     self.serve_req();
                 }
-                Err(e) => {
-                    warn!("Error parsing request: {:?}", e);
-                    self.serve_error(400)
-                }
+                Err(e) => self.handle_req_parsing_error(&e),
             }
         }
 
         info!("Connection closed: {}", self.peer_addr);
+    }
+
+    fn handle_req_parsing_error(&mut self, error: &ReqHeadParsingError) {
+        match error {
+            ReqHeadParsingError::InvalidFirstLine(error) => {
+                warn!("Error parsing request first line: {:?}", error)
+            }
+            ReqHeadParsingError::InvalidHeader(error) => {
+                warn!("Error parsing request header: {:?}", error)
+            }
+        };
+        self.serve_error(400);
     }
 
     fn serve_error(&mut self, status_code: u16) {
