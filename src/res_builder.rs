@@ -1,11 +1,13 @@
 use crate::http_header::{EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader};
 use crate::http_res;
 use crate::http_res::HttpRes;
+use ascii::AsciiString;
 use mime_guess::{MimeGuess, mime};
 use std::cmp::Ordering;
 use std::fs;
 use std::fs::DirEntry;
 use std::path::Path;
+use std::str::FromStr;
 
 pub struct ResBuilder {
     res: HttpRes,
@@ -26,7 +28,7 @@ impl ResBuilder {
         // set content type
         self.res.set_header(
             ResHeader::EntityHeader(EntityHeader::ContentType),
-            HeaderValue::Plain(String::from(mime::TEXT_HTML.essence_str())),
+            HeaderValue::Plain(AsciiString::from_str(mime::TEXT_HTML.essence_str()).unwrap()),
         );
 
         let mut entries: Vec<DirEntry> = fs::read_dir(dir_path)?.map(|e| e.unwrap()).collect();
@@ -89,7 +91,7 @@ impl ResBuilder {
         let mime_type = MimeGuess::from_path(file_path).first_or_octet_stream();
         self.res.set_header(
             ResHeader::EntityHeader(EntityHeader::ContentType),
-            HeaderValue::Plain(String::from(mime_type.essence_str())),
+            HeaderValue::Plain(AsciiString::from_str(mime_type.essence_str()).unwrap()),
         );
 
         // set content
@@ -132,9 +134,13 @@ impl ResBuilder {
             self.res.set_header(
                 ResHeader::GeneralHeader(GeneralHeader::Date),
                 HeaderValue::Plain(
-                    chrono::Utc::now()
-                        .format("%a, %d %b %Y %H:%M:%S GMT")
-                        .to_string(),
+                    AsciiString::from_ascii(
+                        chrono::Utc::now()
+                            .format("%a, %d %b %Y %H:%M:%S GMT")
+                            .to_string()
+                            .as_bytes(),
+                    )
+                    .unwrap(),
                 ),
             );
         }
@@ -146,7 +152,7 @@ impl ResBuilder {
         {
             self.res.set_header(
                 ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
-                HeaderValue::Plain(String::from("rust-http-server")),
+                HeaderValue::Plain(AsciiString::from_str("rust-http-server").unwrap()),
             );
         }
 

@@ -1,16 +1,30 @@
 //! Data structures for modeling an HTTP request.
 
 pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
+use ascii::AsciiString;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
+pub enum ReqVerb {
+    Get,
+}
+
+impl Display for ReqVerb {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReqVerb::Get => f.write_str("GET"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum ReqTarget {
     All,
     // path (url-decoded, original)
-    Path(String, String),
+    Path(String, AsciiString),
 }
 
 impl Display for ReqTarget {
@@ -24,17 +38,17 @@ impl Display for ReqTarget {
 
 #[derive(Debug)]
 pub struct ReqHead {
-    verb: String,
+    verb: ReqVerb,
     target: ReqTarget,
-    version: String,
+    version: AsciiString,
     headers: HashMap<ReqHeader, HeaderValue>,
 }
 
 impl ReqHead {
     pub fn new(
-        verb: String,
+        verb: ReqVerb,
         target: ReqTarget,
-        version: String,
+        version: AsciiString,
         headers: HashMap<ReqHeader, HeaderValue>,
     ) -> Self {
         Self {
@@ -81,8 +95,8 @@ impl HttpReq {
         self.head.version.as_str()
     }
 
-    pub fn verb(&self) -> &str {
-        self.head.verb.as_str()
+    pub fn verb(&self) -> &ReqVerb {
+        &self.head.verb
     }
 
     pub fn target(&self) -> &ReqTarget {

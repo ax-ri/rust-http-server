@@ -1,8 +1,9 @@
-use crate::http_req::{HttpReq, ReqTarget};
+use crate::http_req::{HttpReq, ReqTarget, ReqVerb};
 use crate::req_parser::ReqHeadParser;
 
 use crate::http_res::HttpRes;
 use crate::res_builder::ResBuilder;
+use ascii::AsciiString;
 use chrono::Utc;
 use log::{debug, error, info, warn};
 use std::io::{BufRead, BufReader, Write};
@@ -71,29 +72,28 @@ impl<'a> ClientHandler<'a> {
 
         while !connection_closed {
             req_head_parser.reset();
-            let mut buf = String::new();
 
             debug!("waiting for request head");
             while !req_head_parser.is_complete() {
-                buf.clear();
-
                 // read one line from the stream
-                let result = buf_reader.read_line(&mut buf);
+                let mut line: Vec<u8> = Vec::new();
+                let result = buf_reader.read_until(b'\n', &mut line);
                 // handle connection closing
                 if let Err(e) = result {
                     warn!("Cannot read line from buffered stream: {:?}", e);
                     connection_closed = true;
                     break;
                 };
-                if buf.is_empty() {
+                if line.is_empty() {
                     connection_closed = true;
                     break;
                 }
-
-                debug!("Received line: {:?}", buf);
+                let ascii_line =
+                    AsciiString::from_ascii(line).expect("Cannot convert to ascii string");
+                debug!("Received line: {:?}", ascii_line);
 
                 // parse line as part of HTTP request head
-                if let Err(e) = req_head_parser.process_line(buf.trim()) {
+                if let Err(e) = req_head_parser.process_line(ascii_line.trim()) {
                     warn!("Cannot process line: {:?}", e);
                     invalid_request = true;
                     break;
@@ -128,7 +128,7 @@ impl<'a> ClientHandler<'a> {
     }
 
     fn serve_error(&mut self, status_code: u16) {
-        let mut res_builder = ResBuilder::new("1.1");
+        let mut res_builder = ResBuilder::new("HTTP/1.1");
         let res = res_builder.build_error(status_code);
         self.send_response(res);
     }
@@ -137,8 +137,8 @@ impl<'a> ClientHandler<'a> {
         debug!("serving request");
 
         match self.current_req.as_ref().unwrap().verb() {
-            "GET" => self.serve_static_resource(),
-            _ => self.serve_error(405),
+            ReqVerb::Get => self.serve_static_resource(),
+            //_ => self.serve_error(405),
         };
 
         debug!("request served");

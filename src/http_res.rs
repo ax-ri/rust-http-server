@@ -105,7 +105,7 @@ impl HttpRes {
     pub fn to_bytes(&self) -> (Vec<u8>, Option<&Vec<u8>>) {
         let mut res_string = String::new();
         res_string.push_str(&format!(
-            "HTTP/{} {} {}\r\n",
+            "{} {} {}\r\n",
             self.version,
             self.status_code,
             get_reason_phrase(self.status_code)

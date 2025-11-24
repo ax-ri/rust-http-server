@@ -1,25 +1,24 @@
 //! HTTP request parsing.
 
-use crate::http_req::{HeaderValue, ReqHead, ReqHeader, ReqOnlyHeader, ReqTarget};
-
-use regex::Regex;
+use crate::http_req::{HeaderValue, ReqHead, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
 
 use crate::http_header::GeneralHeader;
+use ascii::{AsciiChar, AsciiStr, AsciiString};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 
 struct RawReqHead {
-    request_line: String,
-    headers: HashMap<String, String>,
-    last_header_name: String,
+    request_line: AsciiString,
+    headers: HashMap<AsciiString, AsciiString>,
+    last_header_name: AsciiString,
 }
 
 impl RawReqHead {
     fn new() -> Self {
         Self {
-            request_line: String::new(),
+            request_line: AsciiString::new(),
             headers: HashMap::new(),
-            last_header_name: String::new(),
+            last_header_name: AsciiString::new(),
         }
     }
 }
@@ -56,13 +55,13 @@ impl ReqHeadParser {
         self.state == ReqHeadParserState::Done
     }
 
-    pub fn process_line(&mut self, line: &str) -> Result<(), ReqHeadParsingError> {
+    pub fn process_line(&mut self, line: &AsciiStr) -> Result<(), ReqHeadParsingError> {
         match self.state {
             ReqHeadParserState::RequestLine => {
                 if line.is_empty() {
                     Err(ReqHeadParsingError::InvalidFirstLine)
                 } else {
-                    self.raw_req_head.request_line = String::from(line);
+                    self.raw_req_head.request_line = AsciiString::from(line);
                     self.state = ReqHeadParserState::Headers;
                     Ok(())
                 }
@@ -72,11 +71,13 @@ impl ReqHeadParser {
                     self.state = ReqHeadParserState::Done;
                     Ok(())
                 } else {
-                    match *line.splitn(2, ":").collect::<Vec<_>>() {
+                    match line.chars().position(|c_| c_ == ':') {
                         // typical name: value header line
-                        [name, value] => {
+                        Some(colon_idx) => {
+                            let (name, value) = (&line[..colon_idx], &line[colon_idx + 1..]);
+
                             // header names should be treated case-insensitive
-                            let name = String::from(name).to_ascii_lowercase();
+                            let name = AsciiString::from(name).to_ascii_lowercase();
                             self.raw_req_head
                                 .headers
                                 .entry(name.clone())
@@ -85,8 +86,8 @@ impl ReqHeadParser {
                             self.raw_req_head.last_header_name = name;
                             Ok(())
                         }
-                        // if the line has not ':', then it may be the previous header line continued
-                        [value] => {
+                        // if the line has no ':', then it may be the previous header line continued
+                        None => {
                             // error if there is no previous header
                             if self.raw_req_head.last_header_name.is_empty() {
                                 Err(ReqHeadParsingError::InvalidHeader)
@@ -95,11 +96,10 @@ impl ReqHeadParser {
                                     .headers
                                     .entry(self.raw_req_head.last_header_name.clone())
                                     .or_default()
-                                    .push_str(value);
+                                    .push_str(line);
                                 Ok(())
                             }
                         }
-                        _ => Err(ReqHeadParsingError::InvalidHeader),
                     }
                 }
             }
@@ -127,156 +127,166 @@ impl ReqHeadParser {
 }
 
 /// Parse the first line of an HTTP request (e.g. GET /foo/bar HTTP/1.1)
-fn parse_first_line(line: &str) -> Result<(String, ReqTarget, String), ReqHeadParsingError> {
-    let re = Regex::new(r"(?<verb>GET|HEAD|POST|PUT|DELETE|TRACE|CONNECT|OPTIONS) (?<target>.+) HTTP/(?<version>[\d.]+)")
-        .expect("Cannot build request line parser");
-    let caps = re
-        .captures(line)
-        .ok_or(ReqHeadParsingError::InvalidFirstLine)?;
-    Ok((
-        caps["verb"]
-            .parse()
-            .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?,
-        match &caps["target"] {
-            "*" => ReqTarget::All,
-            path => ReqTarget::Path(
-                urlencoding::decode(path)
-                    .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?
-                    .into_owned(),
-                String::from(path),
-            ),
-        },
-        caps["version"]
-            .parse()
-            .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?,
-    ))
+fn parse_first_line(
+    line: &AsciiStr,
+) -> Result<(ReqVerb, ReqTarget, AsciiString), ReqHeadParsingError> {
+    match *line.split(AsciiChar::Space).collect::<Vec<_>>().as_slice() {
+        [verb, target, version] => Ok((
+            parse_http_verb(verb)?,
+            parse_http_target(target)?,
+            AsciiString::from(version),
+        )),
+        _ => Err(ReqHeadParsingError::InvalidFirstLine),
+    }
 }
 
-fn parse_header(name: &str, value: &str) -> Result<(ReqHeader, HeaderValue), ReqHeadParsingError> {
-    match (name, value) {
+fn parse_http_verb(verb: &AsciiStr) -> Result<ReqVerb, ReqHeadParsingError> {
+    match verb.as_bytes() {
+        b"GET" => Ok(ReqVerb::Get),
+        _ => Err(ReqHeadParsingError::InvalidFirstLine),
+    }
+}
+
+fn parse_http_target(target: &AsciiStr) -> Result<ReqTarget, ReqHeadParsingError> {
+    match target.as_bytes() {
+        b"*" => Ok(ReqTarget::All),
+        _ => Ok(ReqTarget::Path(
+            urlencoding::decode(target.as_str())
+                .map_err(|_| ReqHeadParsingError::InvalidFirstLine)?
+                .into_owned(),
+            AsciiString::from(target),
+        )),
+    }
+}
+
+fn parse_header(
+    name: &AsciiStr,
+    value: &AsciiStr,
+) -> Result<(ReqHeader, HeaderValue), ReqHeadParsingError> {
+    match (name.as_bytes(), value) {
         // general headers
-        ("cache-control", v) => Ok((
+        (b"cache-control", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::CacheControl),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("connection", v) => Ok((
+        (b"connection", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Connection),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("date", v) => Ok((
+        (b"date", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Date),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("pragma", v) => Ok((
+        (b"pragma", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Pragma),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("trailer", v) => Ok((
+        (b"trailer", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Trailer),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("transfer-encoding", v) => Ok((
+        (b"transfer-encoding", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::TransferEncoding),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("upgrade", v) => Ok((
+        (b"upgrade", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Upgrade),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("via", v) => Ok((
+        (b"via", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Via),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("warning", v) => Ok((
+        (b"warning", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Warning),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
         // req only headers
-        ("accept", v) => {
+        (b"accept", v) => {
             parse_header_value(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Accept), v))
         }
-        ("accept-charset", v) => {
+        (b"accept-charset", v) => {
             parse_header_value(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptCharset), v))
         }
-        ("accept-encoding", value) => parse_header_value(value)
+        (b"accept-encoding", value) => parse_header_value(value)
             .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptEncoding), v)),
-        ("accept-language", value) => parse_header_value(value)
+        (b"accept-language", value) => parse_header_value(value)
             .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptLanguage), v)),
-        ("authorization", v) => Ok((
+        (b"authorization", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Authorization),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("expect", v) => Ok((
+        (b"expect", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Expect),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("from", v) => Ok((
+        (b"from", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::From),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("host", v) => Ok((
+        (b"host", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Host),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("if-match", v) => Ok((
+        (b"if-match", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfMatch),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("if-modified-since", v) => Ok((
+        (b"if-modified-since", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfModifiedSince),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("if-none-match", v) => Ok((
+        (b"if-none-match", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfNoneMatch),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("if-range", v) => Ok((
+        (b"if-range", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfRange),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("if-unmodified-since", v) => Ok((
+        (b"if-unmodified-since", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfUnmodifiedSince),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("max-forwards", v) => Ok((
+        (b"max-forwards", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::MaxForwards),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("proxy-authorization", v) => Ok((
+        (b"proxy-authorization", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::ProxyAuthorization),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("range", v) => Ok((
+        (b"range", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Range),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("referer", v) => Ok((
+        (b"referer", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Referer),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("te", v) => Ok((
+        (b"te", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::TE),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
-        ("user-agent", v) => Ok((
+        (b"user-agent", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::UserAgent),
-            HeaderValue::Plain(String::from(v)),
+            HeaderValue::Plain(AsciiString::from(v)),
         )),
         (name, value) => Ok((
-            ReqHeader::Other(String::from(name)),
-            HeaderValue::Plain(String::from(value)),
+            ReqHeader::Other(AsciiString::from_ascii(name).unwrap()),
+            HeaderValue::Plain(AsciiString::from(value)),
         )),
     }
 }
 
 /// Parse a header value that is made of a list of comma-separated values.
-fn parse_header_value(value: &str) -> Result<HeaderValue, ReqHeadParsingError> {
-    let trimmed_value = value.replace(" ", "");
-    let values = trimmed_value.split(",").collect::<Vec<_>>();
+fn parse_header_value(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
+    let trimmed_value = value; //.replace(" ", "");
+    let values = trimmed_value.split(AsciiChar::Comma).collect::<Vec<_>>();
     if values.is_empty() {
         return Err(ReqHeadParsingError::InvalidHeader);
     }
-    let values: Vec<(String, Vec<(String, String)>)> =
+    let values: Vec<(AsciiString, Vec<(AsciiString, AsciiString)>)> =
         values.iter().map(|m| parse_value_and_attr(m)).collect();
     match values.len() {
         0 => Err(ReqHeadParsingError::InvalidHeader),
@@ -285,22 +295,22 @@ fn parse_header_value(value: &str) -> Result<HeaderValue, ReqHeadParsingError> {
 }
 
 /// Parse a value that is made of a string and a list of attributes, separated by a semicolon.
-fn parse_value_and_attr(value_str: &str) -> (String, Vec<(String, String)>) {
-    if value_str.contains(";") {
-        let mut values_it = value_str.split(";");
+fn parse_value_and_attr(value_str: &AsciiStr) -> (AsciiString, Vec<(AsciiString, AsciiString)>) {
+    if value_str.chars().any(|c_| c_ == ';') {
+        let mut values_it = value_str.split(AsciiChar::Semicolon);
         let main_value = values_it.next().unwrap();
         let attributes = values_it
             .filter_map(|s| {
-                let split = s.split('=').collect::<Vec<_>>();
+                let split = s.split(AsciiChar::Equal).collect::<Vec<_>>();
                 match split.len() {
-                    1 => Some((String::from(split[0]), String::new())),
-                    2 => Some((String::from(split[0]), String::from(split[1]))),
+                    1 => Some((AsciiString::from(split[0]), AsciiString::new())),
+                    2 => Some((AsciiString::from(split[0]), AsciiString::from(split[1]))),
                     _ => None,
                 }
             })
             .collect();
-        (String::from(main_value), attributes)
+        (AsciiString::from(main_value), attributes)
     } else {
-        (String::from(value_str), Vec::new())
+        (AsciiString::from(value_str), Vec::new())
     }
 }
