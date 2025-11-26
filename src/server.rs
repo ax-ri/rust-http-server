@@ -2,7 +2,7 @@ use crate::http_req::{HttpReq, ReqTarget, ReqVerb};
 use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
 use std::io::Read;
 
-use crate::http_res::HttpRes;
+use crate::http_res::{HttpRes, ResBody};
 use crate::res_builder::ResBuilder;
 use ascii::AsciiString;
 use chrono::Utc;
@@ -124,6 +124,7 @@ impl<'a> ClientHandler<'a> {
                         if let Err(e) = self.stream.shutdown(Shutdown::Both) {
                             warn!("Cannot close connection, {:?}", e);
                         };
+                        info!("Closing connection");
                         connection_closed = true;
                     }
                 }
@@ -223,7 +224,7 @@ impl<'a> ClientHandler<'a> {
         }
     }
 
-    fn send_response(&mut self, res: &HttpRes) {
+    fn send_response(&mut self, res: &mut HttpRes) {
         info!(
             "{} - - {} {} {} {}",
             self.peer_addr,
@@ -238,15 +239,35 @@ impl<'a> ClientHandler<'a> {
             res.body_len()
         );
 
-        let (res_head, res_body) = res.to_bytes();
+        let res_head = res.head_bytes();
         if let Err(e) = self.stream.write_all(&res_head) {
             warn!("Cannot write response head: {:?}", e);
         }
-        if let Some(body) = res_body {
-            #[allow(clippy::collapsible_if)]
-            if let Err(e) = self.stream.write_all(body) {
-                warn!("Cannot write response body: {:?}", e);
+
+        if let Err(e) = self.stream.flush() {
+            warn!("Cannot flush response head: {:?}", e)
+        }
+
+        match res.body_ref() {
+            Some(ResBody::Bytes(bytes)) => {
+                debug!("sending {} bytes", bytes.len());
+                if let Err(e) = self.stream.write_all(bytes) {
+                    warn!("Cannot write response body bytes: {:?}", e);
+                }
             }
+            Some(ResBody::Stream(file, _)) => {
+                let mut file = file;
+                match std::io::copy(&mut file, &mut self.stream) {
+                    Ok(n) => debug!("sent {} bytes", n),
+                    Err(e) => {
+                        warn!("Cannot write response body stream: {:?}", e);
+                    }
+                }
+            }
+            None => (),
+        }
+        if let Err(e) = self.stream.flush() {
+            warn!("Cannot flush response body: {:?}", e)
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::http_header::{EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader};
 use crate::http_res;
-use crate::http_res::HttpRes;
+use crate::http_res::{HttpRes, ResBody};
 use ascii::AsciiString;
 use mime_guess::{MimeGuess, mime};
 use std::cmp::Ordering;
@@ -81,7 +81,7 @@ impl ResBuilder {
 
         // set content
         let content = Vec::from(html.as_bytes());
-        self.res.set_body(Some(content));
+        self.res.set_body(Some(ResBody::Bytes(content)));
 
         Ok(())
     }
@@ -94,14 +94,20 @@ impl ResBuilder {
             HeaderValue::Plain(AsciiString::from_str(mime_type.essence_str()).unwrap()),
         );
 
+        let metadata = fs::metadata(file_path)?;
         // set content
-        let content = fs::read(file_path)?;
-        self.res.set_body(Some(content));
-
+        if metadata.len() > 1024 * 1024 {
+            let file = fs::File::open(file_path)?;
+            let len = file.metadata()?.len();
+            self.res.set_body(Some(ResBody::Stream(file, len)));
+        } else {
+            let content = fs::read(file_path)?;
+            self.res.set_body(Some(ResBody::Bytes(content)));
+        }
         Ok(())
     }
 
-    pub fn build_error(&mut self, status_code: u16) -> &HttpRes {
+    pub fn build_error(&mut self, status_code: u16) -> &mut HttpRes {
         self.res.set_status(status_code);
         let title = format!(
             "{} {}",
@@ -121,11 +127,12 @@ impl ResBuilder {
                 </html>"##,
             title, title
         );
-        self.res.set_body(Some(message.into_bytes()));
+        self.res
+            .set_body(Some(ResBody::Bytes(message.into_bytes())));
         self.do_build()
     }
 
-    pub fn do_build(&mut self) -> &HttpRes {
+    pub fn do_build(&mut self) -> &mut HttpRes {
         // set date if not already present
         if !self
             .res
@@ -157,13 +164,15 @@ impl ResBuilder {
         }
 
         // set content-length
-        if let Some(body) = self.res.body() {
+        if let Some(body) = self.res.body_ref()
+            && body.len() > 0
+        {
             self.res.set_header(
                 ResHeader::EntityHeader(EntityHeader::ContentLength),
-                HeaderValue::Number(body.len() as i32),
+                HeaderValue::Number(body.len() as u64),
             )
         }
 
-        &self.res
+        &mut self.res
     }
 }

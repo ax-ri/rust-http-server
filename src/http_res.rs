@@ -3,13 +3,7 @@
 use crate::http_header::ResHeader;
 use crate::http_req::HeaderValue;
 use std::collections::HashMap;
-
-pub struct HttpRes {
-    version: String,
-    status_code: u16,
-    headers: HashMap<ResHeader, HeaderValue>,
-    body: Option<Vec<u8>>,
-}
+use std::fs::File;
 
 pub fn get_reason_phrase(status_code: u16) -> String {
     match status_code {
@@ -58,6 +52,27 @@ pub fn get_reason_phrase(status_code: u16) -> String {
     }
 }
 
+pub enum ResBody {
+    Bytes(Vec<u8>),
+    Stream(File, u64),
+}
+
+impl ResBody {
+    pub fn len(&self) -> usize {
+        match self {
+            Self::Bytes(bytes) => bytes.len(),
+            Self::Stream(_, len) => *len as usize,
+        }
+    }
+}
+
+pub struct HttpRes {
+    version: String,
+    status_code: u16,
+    headers: HashMap<ResHeader, HeaderValue>,
+    body: Option<ResBody>,
+}
+
 impl HttpRes {
     pub fn new(version: &str) -> Self {
         Self {
@@ -76,24 +91,6 @@ impl HttpRes {
         self.status_code = status_code
     }
 
-    pub fn body(&self) -> &Option<Vec<u8>> {
-        &self.body
-    }
-
-    pub fn body_len(&self) -> usize {
-        self.body.as_ref().map_or(0, |b| b.len())
-    }
-
-    pub fn set_body(&mut self, body: Option<Vec<u8>>) {
-        if let Some(mut content) = body {
-            content.push(b'\r');
-            content.push(b'\n');
-            self.body = Some(content);
-        } else {
-            self.body = None;
-        }
-    }
-
     pub fn set_header(&mut self, name: ResHeader, value: HeaderValue) {
         self.headers.insert(name, value);
     }
@@ -102,7 +99,7 @@ impl HttpRes {
         self.headers.contains_key(&name)
     }
 
-    pub fn to_bytes(&self) -> (Vec<u8>, Option<&Vec<u8>>) {
+    pub fn head_bytes(&self) -> Vec<u8> {
         let mut res_string = String::new();
         res_string.push_str(&format!(
             "{} {} {}\r\n",
@@ -117,6 +114,18 @@ impl HttpRes {
 
         res_string.push_str("\r\n");
 
-        (res_string.into_bytes(), Option::from(&self.body))
+        res_string.into_bytes()
+    }
+
+    pub fn body_ref(&self) -> Option<&ResBody> {
+        self.body.as_ref()
+    }
+
+    pub fn body_len(&self) -> usize {
+        self.body.as_ref().map_or(0, |b| b.len())
+    }
+
+    pub fn set_body(&mut self, body: Option<ResBody>) {
+        self.body = body;
     }
 }

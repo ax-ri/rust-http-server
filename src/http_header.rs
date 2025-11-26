@@ -35,7 +35,7 @@ impl Display for GeneralHeader {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum HeaderValue {
-    Number(i32),
+    Number(u64),
     Plain(AsciiString),
     Parsed(Vec<(AsciiString, Vec<(AsciiString, AsciiString)>)>),
 }
