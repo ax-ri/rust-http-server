@@ -1,5 +1,6 @@
 //! Data structures for modeling an HTTP request.
 
+use crate::http_header::GeneralHeader;
 pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
 use ascii::AsciiString;
 use chrono::{DateTime, Utc};
@@ -58,6 +59,15 @@ impl ReqHead {
             headers,
         }
     }
+
+    pub fn should_close(&self) -> bool {
+        self.headers
+            .get(&ReqHeader::GeneralHeader(GeneralHeader::Connection))
+            .is_some_and(|h| match h {
+                HeaderValue::Plain(v) => v.eq("close"),
+                _ => false,
+            })
+    }
 }
 
 impl Display for ReqHead {
@@ -108,5 +118,9 @@ impl HttpReq {
             "{} {} HTTP/{}",
             self.head.verb, self.head.target, self.head.version
         )
+    }
+
+    pub fn should_close(&self) -> bool {
+        self.head.should_close()
     }
 }

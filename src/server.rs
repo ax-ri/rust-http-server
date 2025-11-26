@@ -8,7 +8,7 @@ use ascii::AsciiString;
 use chrono::Utc;
 use log::{debug, error, info, warn};
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -120,6 +120,12 @@ impl<'a> ClientHandler<'a> {
 
                     self.current_req = Some(HttpReq::new(Utc::now(), parsed_head));
                     self.serve_req();
+                    if self.current_req.as_ref().unwrap().should_close() {
+                        if let Err(e) = self.stream.shutdown(Shutdown::Both) {
+                            warn!("Cannot close connection, {:?}", e);
+                        };
+                        connection_closed = true;
+                    }
                 }
                 Err(e) => self.handle_req_parsing_error(&e),
             }
