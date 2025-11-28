@@ -111,7 +111,6 @@ impl<'a> ClientHandler<'a> {
             match req_head_parser.do_parse() {
                 Ok(parsed_head) => {
                     debug!("request head parsing done");
-                    dbg!("REQUEST HEAD:{:?}", &parsed_head);
 
                     self.current_req = Some(HttpReq::new(Utc::now(), parsed_head));
                     self.serve_req();

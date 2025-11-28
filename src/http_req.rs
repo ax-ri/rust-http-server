@@ -114,7 +114,7 @@ impl HttpReq {
 
     pub fn first_line(&self) -> String {
         format!(
-            "{} {} HTTP/{}",
+            "{} {} {}",
             self.head.verb, self.head.target, self.head.version
         )
     }
