@@ -1,8 +1,12 @@
-use crate::http_header::{EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader};
+use crate::http_header::{
+    EntityHeader, GeneralHeader, HeaderValue, HeaderValueMemberName, HeaderValueMemberValue,
+    ResHeader, ResOnlyHeader,
+};
 use crate::http_res;
 use crate::http_res::{HttpRes, ResBody};
 use mime_guess::{MimeGuess, mime};
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::fs;
 use std::fs::DirEntry;
 use std::path::Path;
@@ -18,16 +22,23 @@ impl ResBuilder {
         }
     }
 
+    fn set_default_content_type(&mut self) {
+        // set content type
+        self.res.set_header(
+            ResHeader::EntityHeader(EntityHeader::ContentType),
+            HeaderValue::Parsed(vec![(
+                String::from(mime::TEXT_HTML.essence_str()),
+                BTreeMap::from([(HeaderValueMemberName::Charset, HeaderValueMemberValue::UTF8)]),
+            )]),
+        );
+    }
+
     pub fn list_directory(
         &mut self,
         dir_path: &Path,
         rel_path: &str,
     ) -> Result<(), std::io::Error> {
-        // set content type
-        self.res.set_header(
-            ResHeader::EntityHeader(EntityHeader::ContentType),
-            HeaderValue::Plain(String::from(mime::TEXT_HTML.essence_str())),
-        );
+        self.set_default_content_type();
 
         let mut entries: Vec<DirEntry> = fs::read_dir(dir_path)?.map(|e| e.unwrap()).collect();
         entries.sort_by(|a, b| {
@@ -107,6 +118,10 @@ impl ResBuilder {
 
     pub fn build_error(&mut self, status_code: u16) -> &mut HttpRes {
         self.res.set_status(status_code);
+
+        // set content type
+        self.set_default_content_type();
+
         let title = format!(
             "{} {}",
             status_code,

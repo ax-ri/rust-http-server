@@ -2,12 +2,12 @@
 
 use crate::http_req::{HeaderValue, ReqHead, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
 
-use crate::http_header::GeneralHeader;
+use crate::http_header::{GeneralHeader, HeaderValueMemberName, HeaderValueMemberValue};
 use crate::req_parser::ReqHeadParsingError::Ascii;
 use ascii::{AsAsciiStrError, AsciiChar, AsciiStr, AsciiString};
 use log::debug;
 use std::cmp::PartialEq;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 struct RawReqHead {
     request_line: AsciiString,
@@ -325,8 +325,10 @@ fn parse_header_value(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingErr
     if values.is_empty() {
         return Err(ReqHeadParsingError::Header(HeaderParsingError::NoComponent));
     }
-    let values: Vec<(String, Vec<(String, String)>)> =
-        values.iter().map(|m| parse_value_and_attr(m)).collect();
+    let values: Vec<(
+        String,
+        BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+    )> = values.iter().map(|m| parse_value_and_attr(m)).collect();
     match values.len() {
         0 => Err(ReqHeadParsingError::Header(HeaderParsingError::NoComponent)),
         _ => Ok(HeaderValue::Parsed(values)),
@@ -334,7 +336,12 @@ fn parse_header_value(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingErr
 }
 
 /// Parse a value that is made of a string and a list of attributes, separated by a semicolon.
-fn parse_value_and_attr(value_str: &AsciiStr) -> (String, Vec<(String, String)>) {
+fn parse_value_and_attr(
+    value_str: &AsciiStr,
+) -> (
+    String,
+    BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+) {
     if value_str.chars().any(|c_| c_ == ';') {
         let mut values_it = value_str.split(AsciiChar::Semicolon);
         let main_value = values_it.next().unwrap();
@@ -342,14 +349,28 @@ fn parse_value_and_attr(value_str: &AsciiStr) -> (String, Vec<(String, String)>)
             .filter_map(|s| {
                 let split = s.split(AsciiChar::Equal).collect::<Vec<_>>();
                 match split.len() {
-                    1 => Some((split[0].to_string(), String::new())),
-                    2 => Some((split[0].to_string(), split[1].to_string())),
+                    1 => Some((split[0], AsciiStr::from_ascii(&[]).unwrap())),
+                    2 => Some((split[0], split[1])),
                     _ => None,
+                }
+            })
+            .map(|(attr_name, attr_value)| {
+                match (
+                    attr_name.to_ascii_lowercase().as_bytes(),
+                    attr_value.to_ascii_lowercase().as_bytes(),
+                ) {
+                    (b"charset", b"utf-8") => {
+                        (HeaderValueMemberName::Charset, HeaderValueMemberValue::UTF8)
+                    }
+                    _ => (
+                        HeaderValueMemberName::Other(attr_name.to_string()),
+                        HeaderValueMemberValue::Other(attr_value.to_string()),
+                    ),
                 }
             })
             .collect();
         (main_value.to_string(), attributes)
     } else {
-        (value_str.to_string(), Vec::new())
+        (value_str.to_string(), BTreeMap::new())
     }
 }

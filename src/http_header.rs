@@ -1,6 +1,8 @@
 //! Data structures for modeling HTTP headers.
 
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::hash::Hash;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 /// Http header that can be part of requests and responses.
@@ -32,11 +34,46 @@ impl Display for GeneralHeader {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub enum HeaderValueMemberName {
+    Charset,
+    Other(String),
+}
+
+impl Display for HeaderValueMemberName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Charset => write!(f, "charset"),
+            Self::Other(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum HeaderValueMemberValue {
+    UTF8,
+    Other(String),
+}
+
+impl Display for HeaderValueMemberValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UTF8 => write!(f, "utf-8"),
+            Self::Other(name) => write!(f, "{}", name),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum HeaderValue {
     Number(u64),
     Plain(String),
-    Parsed(Vec<(String, Vec<(String, String)>)>),
+    Parsed(
+        Vec<(
+            String,
+            BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+        )>,
+    ),
 }
 
 impl Display for HeaderValue {
@@ -44,7 +81,24 @@ impl Display for HeaderValue {
         match self {
             HeaderValue::Number(n) => write!(f, "{}", n),
             HeaderValue::Plain(s) => write!(f, "{}", s),
-            HeaderValue::Parsed(_) => todo!(),
+            HeaderValue::Parsed(v) => write!(
+                f,
+                "{}",
+                v.iter()
+                    .map(|(name, members)| {
+                        format!(
+                            "{};{}",
+                            name,
+                            members
+                                .iter()
+                                .map(|(name, value)| format!("{}={}", name, value))
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
         }
     }
 }
