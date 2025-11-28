@@ -1,6 +1,5 @@
 //! Data structures for modeling HTTP headers.
 
-use ascii::AsciiString;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -36,8 +35,8 @@ impl Display for GeneralHeader {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum HeaderValue {
     Number(u64),
-    Plain(AsciiString),
-    Parsed(Vec<(AsciiString, Vec<(AsciiString, AsciiString)>)>),
+    Plain(String),
+    Parsed(Vec<(String, Vec<(String, String)>)>),
 }
 
 impl Display for HeaderValue {
@@ -163,7 +162,7 @@ impl Display for EntityHeader {
 pub enum ReqHeader {
     GeneralHeader(GeneralHeader),
     ReqOnly(ReqOnlyHeader),
-    Other(AsciiString),
+    Other(String),
 }
 
 impl Display for ReqHeader {

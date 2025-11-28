@@ -4,7 +4,6 @@ use std::io::Read;
 
 use crate::http_res::{HttpRes, ResBody};
 use crate::res_builder::ResBuilder;
-use ascii::AsciiString;
 use chrono::Utc;
 use log::{debug, error, info, warn};
 use std::io::{BufRead, BufReader, Write};
@@ -93,12 +92,8 @@ impl<'a> ClientHandler<'a> {
                     connection_closed = true;
                     break;
                 }
-                let ascii_line =
-                    AsciiString::from_ascii(line).expect("Cannot convert to ascii string");
-                debug!("Received line: {:?}", ascii_line);
-
                 // parse line as part of HTTP request head
-                if let Err(e) = req_head_parser.process_line(ascii_line.trim()) {
+                if let Err(e) = req_head_parser.process_bytes(line) {
                     req_parsing_error = Some(e);
                     break;
                 }
@@ -137,10 +132,13 @@ impl<'a> ClientHandler<'a> {
 
     fn handle_req_parsing_error(&mut self, error: &ReqHeadParsingError) {
         match error {
-            ReqHeadParsingError::InvalidFirstLine(error) => {
+            ReqHeadParsingError::Ascii(error) => {
+                warn!("Error parsing request as ASCII: {:?}", error)
+            }
+            ReqHeadParsingError::FirstLine(error) => {
                 warn!("Error parsing request first line: {:?}", error)
             }
-            ReqHeadParsingError::InvalidHeader(error) => {
+            ReqHeadParsingError::Header(error) => {
                 warn!("Error parsing request header: {:?}", error)
             }
         };

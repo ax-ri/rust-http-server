@@ -2,7 +2,6 @@
 
 use crate::http_header::GeneralHeader;
 pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
-use ascii::AsciiString;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -25,7 +24,7 @@ impl Display for ReqVerb {
 pub enum ReqTarget {
     All,
     // path (url-decoded, original)
-    Path(String, AsciiString),
+    Path(String, String),
 }
 
 impl Display for ReqTarget {
@@ -41,7 +40,7 @@ impl Display for ReqTarget {
 pub struct ReqHead {
     verb: ReqVerb,
     target: ReqTarget,
-    version: AsciiString,
+    version: String,
     headers: HashMap<ReqHeader, HeaderValue>,
 }
 
@@ -49,7 +48,7 @@ impl ReqHead {
     pub fn new(
         verb: ReqVerb,
         target: ReqTarget,
-        version: AsciiString,
+        version: String,
         headers: HashMap<ReqHeader, HeaderValue>,
     ) -> Self {
         Self {
