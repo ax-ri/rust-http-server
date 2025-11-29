@@ -6,7 +6,6 @@ use crate::http_res::{HttpRes, ResBody};
 use mime_guess::{MimeGuess, mime};
 use std::cmp::Ordering;
 use std::fs;
-use std::fs::DirEntry;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -38,17 +37,30 @@ impl ResBuilder {
     ) -> Result<(), std::io::Error> {
         self.set_default_content_type();
 
-        let mut entries: Vec<DirEntry> = fs::read_dir(dir_path)?.map(|e| e.unwrap()).collect();
-        entries.sort_by(|a, b| {
-            match (
-                a.metadata().unwrap().is_dir(),
-                b.metadata().unwrap().is_dir(),
-            ) {
+        let mut entries = if rel_path == "/" {
+            Vec::new()
+        } else {
+            vec![(String::from(".."), true)]
+        };
+        for e in fs::read_dir(dir_path)? {
+            let e = e
+                .as_ref()
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, ""))?;
+            entries.push((
+                e.file_name()
+                    .into_string()
+                    .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidFilename, ""))?,
+                e.metadata()?.is_dir(),
+            ))
+        }
+
+        entries.sort_by(
+            |(a_name, a_is_dir), (b_name, b_is_dir)| match (a_is_dir, b_is_dir) {
                 (true, false) => Ordering::Less,
                 (false, true) => Ordering::Greater,
-                _ => a.file_name().cmp(&b.file_name()),
-            }
-        });
+                _ => a_name.cmp(b_name),
+            },
+        );
         let title = format!("Index of {}", rel_path);
         let html = format!(
             r##"<!DOCTYPE HTML>
@@ -69,21 +81,16 @@ impl ResBuilder {
             title,
             entries
                 .iter()
-                .map(|e| {
-                    let file_name = e.file_name().into_string().unwrap();
+                .map(|(file_name, is_dir)| {
                     let sep = if rel_path == "/" { "" } else { "/" };
                     format!(
                         r##"<li><a href="{}">{}{}</a></li>"##,
-                        rel_path.to_owned() + sep + &file_name,
+                        rel_path.trim_end_matches("/").to_owned() + sep + file_name,
                         file_name,
-                        if e.metadata().unwrap().is_dir() {
-                            "/"
-                        } else {
-                            ""
-                        },
+                        if *is_dir { "/" } else { "" },
                     )
                 })
-                .fold(String::new(), |acc, e| acc + e.as_str()),
+                .fold(String::new(), |acc, e| format!("<pre>{}{}</pre>", acc, e)),
         );
 
         // set content
