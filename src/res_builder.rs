@@ -1,15 +1,14 @@
 use crate::http_header::{
-    EntityHeader, GeneralHeader, HeaderValue, HeaderValueMemberName, HeaderValueMemberValue,
-    ResHeader, ResOnlyHeader,
+    EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader, SimpleHeaderValue,
 };
 use crate::http_res;
 use crate::http_res::{HttpRes, ResBody};
 use mime_guess::{MimeGuess, mime};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
 use std::fs;
 use std::fs::DirEntry;
 use std::path::Path;
+use std::str::FromStr;
 
 pub struct ResBuilder {
     res: HttpRes,
@@ -26,10 +25,9 @@ impl ResBuilder {
         // set content type
         self.res.set_header(
             ResHeader::EntityHeader(EntityHeader::ContentType),
-            HeaderValue::Parsed(vec![(
-                String::from(mime::TEXT_HTML.essence_str()),
-                BTreeMap::from([(HeaderValueMemberName::Charset, HeaderValueMemberValue::UTF8)]),
-            )]),
+            HeaderValue::Simple(SimpleHeaderValue::Mime(
+                mime::Mime::from_str("text/html; charset=utf-8").unwrap(),
+            )),
         );
     }
 
@@ -100,7 +98,7 @@ impl ResBuilder {
         let mime_type = MimeGuess::from_path(file_path).first_or_octet_stream();
         self.res.set_header(
             ResHeader::EntityHeader(EntityHeader::ContentType),
-            HeaderValue::Plain(String::from(mime_type.essence_str())),
+            HeaderValue::Simple(SimpleHeaderValue::Mime(mime_type)),
         );
 
         let metadata = fs::metadata(file_path)?;
@@ -116,19 +114,20 @@ impl ResBuilder {
         Ok(())
     }
 
-    pub fn build_error(&mut self, status_code: u16) -> &mut HttpRes {
+    pub fn build_error(&mut self, status_code: u16, with_body: bool) -> &mut HttpRes {
         self.res.set_status(status_code);
 
         // set content type
-        self.set_default_content_type();
+        if with_body {
+            self.set_default_content_type();
 
-        let title = format!(
-            "{} {}",
-            status_code,
-            http_res::get_reason_phrase(status_code)
-        );
-        let message = format!(
-            r##"<!DOCTYPE html>
+            let title = format!(
+                "{} {}",
+                status_code,
+                http_res::get_reason_phrase(status_code)
+            );
+            let message = format!(
+                r##"<!DOCTYPE html>
                 <html lang="en">
                     <head>
                         <meta charset="utf-8"/>
@@ -138,10 +137,16 @@ impl ResBuilder {
                         <h1>{}</h1>
                     </body>
                 </html>"##,
-            title, title
-        );
-        self.res
-            .set_body(Some(ResBody::Bytes(message.into_bytes())));
+                title, title
+            );
+            self.res
+                .set_body(Some(ResBody::Bytes(message.into_bytes())));
+        } else {
+            self.res.set_header(
+                ResHeader::EntityHeader(EntityHeader::ContentLength),
+                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("0"))),
+            );
+        }
         self.do_build()
     }
 
@@ -153,11 +158,11 @@ impl ResBuilder {
         {
             self.res.set_header(
                 ResHeader::GeneralHeader(GeneralHeader::Date),
-                HeaderValue::Plain(
+                HeaderValue::Simple(SimpleHeaderValue::Plain(
                     chrono::Utc::now()
                         .format("%a, %d %b %Y %H:%M:%S GMT")
                         .to_string(),
-                ),
+                )),
             );
         }
 
@@ -168,7 +173,7 @@ impl ResBuilder {
         {
             self.res.set_header(
                 ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
-                HeaderValue::Plain(String::from("rust-http-server")),
+                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
             );
         }
 
@@ -178,7 +183,7 @@ impl ResBuilder {
         {
             self.res.set_header(
                 ResHeader::EntityHeader(EntityHeader::ContentLength),
-                HeaderValue::Number(body.len() as u64),
+                HeaderValue::Simple(SimpleHeaderValue::Number(body.len() as u64)),
             )
         }
 

@@ -10,4 +10,5 @@ clap = { version = "4.5.53", features = ["derive"] }
 env_logger = "0.11.8"
 log = "0.4.28"
 mime_guess = "2.0.5"
+ordered-float = "5.1.0"
 urlencoding = "2.1.3"

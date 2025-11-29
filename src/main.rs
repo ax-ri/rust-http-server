@@ -4,6 +4,7 @@ mod http_res;
 mod req_parser;
 mod res_builder;
 mod server;
+mod utils;
 
 use crate::server::Settings;
 use clap::Parser;

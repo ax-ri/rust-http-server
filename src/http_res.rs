@@ -128,4 +128,8 @@ impl HttpRes {
     pub fn set_body(&mut self, body: Option<ResBody>) {
         self.body = body;
     }
+
+    pub fn headers(&mut self) -> &mut HashMap<ResHeader, HeaderValue> {
+        &mut self.headers
+    }
 }

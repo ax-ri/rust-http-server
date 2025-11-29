@@ -1,5 +1,7 @@
 //! Data structures for modeling HTTP headers.
 
+use mime_guess::Mime;
+use ordered_float::NotNan;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use std::hash::Hash;
@@ -36,14 +38,14 @@ impl Display for GeneralHeader {
 
 #[derive(Debug, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum HeaderValueMemberName {
-    Charset,
+    Quality,
     Other(String),
 }
 
 impl Display for HeaderValueMemberName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Charset => write!(f, "charset"),
+            Self::Quality => write!(f, "q"),
             Self::Other(name) => write!(f, "{}", name),
         }
     }
@@ -51,54 +53,79 @@ impl Display for HeaderValueMemberName {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum HeaderValueMemberValue {
-    UTF8,
+    Float(NotNan<f32>),
     Other(String),
 }
 
 impl Display for HeaderValueMemberValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UTF8 => write!(f, "utf-8"),
+            Self::Float(x) => write!(f, "{}", x),
             Self::Other(name) => write!(f, "{}", name),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum HeaderValue {
+pub enum SimpleHeaderValue {
     Number(u64),
     Plain(String),
-    Parsed(
-        Vec<(
-            String,
-            BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
-        )>,
-    ),
+    Mime(Mime),
+}
+
+impl Display for SimpleHeaderValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Number(n) => write!(f, "{}", n),
+            Self::Plain(s) => write!(f, "{}", s),
+            Self::Mime(m) => write!(f, "{}", m.essence_str()),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct ParsedHeaderValue(
+    pub  Vec<(
+        SimpleHeaderValue,
+        BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+    )>,
+);
+
+impl Display for ParsedHeaderValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.0
+                .iter()
+                .map(|(name, members)| {
+                    format!(
+                        "{};{}",
+                        name,
+                        members
+                            .iter()
+                            .map(|(name, value)| format!("{}={}", name, value))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum HeaderValue {
+    Simple(SimpleHeaderValue),
+    Parsed(ParsedHeaderValue),
 }
 
 impl Display for HeaderValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            HeaderValue::Number(n) => write!(f, "{}", n),
-            HeaderValue::Plain(s) => write!(f, "{}", s),
-            HeaderValue::Parsed(v) => write!(
-                f,
-                "{}",
-                v.iter()
-                    .map(|(name, members)| {
-                        format!(
-                            "{};{}",
-                            name,
-                            members
-                                .iter()
-                                .map(|(name, value)| format!("{}={}", name, value))
-                                .collect::<Vec<_>>()
-                                .join(",")
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
+            Self::Simple(s) => write!(f, "{}", s),
+            Self::Parsed(s) => write!(f, "{}", s),
         }
     }
 }

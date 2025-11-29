@@ -2,12 +2,17 @@
 
 use crate::http_req::{HeaderValue, ReqHead, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
 
-use crate::http_header::{GeneralHeader, HeaderValueMemberName, HeaderValueMemberValue};
-use crate::req_parser::ReqHeadParsingError::Ascii;
+use crate::http_header::{
+    GeneralHeader, HeaderValueMemberName, HeaderValueMemberValue, ParsedHeaderValue,
+    SimpleHeaderValue,
+};
 use ascii::{AsAsciiStrError, AsciiChar, AsciiStr, AsciiString};
 use log::debug;
+use mime_guess::Mime;
+use ordered_float::NotNan;
 use std::cmp::PartialEq;
 use std::collections::{BTreeMap, HashMap};
+use std::str::FromStr;
 
 struct RawReqHead {
     request_line: AsciiString,
@@ -45,6 +50,8 @@ pub enum HeaderParsingError {
     NoColon,
     SpaceBeforeColon,
     NoComponent,
+    InvalidMime,
+    InvalidFloat,
 }
 
 #[derive(Debug)]
@@ -74,7 +81,8 @@ impl ReqHeadParser {
     }
 
     pub fn process_bytes(&mut self, bytes: Vec<u8>) -> Result<(), ReqHeadParsingError> {
-        let line = AsciiString::from_ascii(bytes).map_err(|e| Ascii(e.ascii_error()))?;
+        let line = AsciiString::from_ascii(bytes)
+            .map_err(|e| ReqHeadParsingError::Ascii(e.ascii_error()))?;
         debug!("Received line: {:?}", line);
         let line = line.trim();
         match self.state {
@@ -200,124 +208,142 @@ fn parse_header(
         // general headers
         (b"cache-control", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::CacheControl),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"connection", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Connection),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"date", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Date),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"pragma", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Pragma),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"trailer", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Trailer),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"transfer-encoding", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::TransferEncoding),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"upgrade", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Upgrade),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"via", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Via),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"warning", v) => Ok((
             ReqHeader::GeneralHeader(GeneralHeader::Warning),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         // req only headers
         (b"accept", v) => {
-            parse_header_value(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Accept), v))
+            parse_header_value_mime(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Accept), v))
         }
-        (b"accept-charset", v) => {
-            parse_header_value(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptCharset), v))
-        }
-        (b"accept-encoding", value) => parse_header_value(value)
+        (b"accept-charset", v) => parse_header_value_plain(v)
+            .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptCharset), v)),
+        (b"accept-encoding", value) => parse_header_value_plain(value)
             .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptEncoding), v)),
-        (b"accept-language", value) => parse_header_value(value)
+        (b"accept-language", value) => parse_header_value_plain(value)
             .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptLanguage), v)),
         (b"authorization", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Authorization),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"expect", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Expect),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"from", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::From),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"host", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Host),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"if-match", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfMatch),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"if-modified-since", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfModifiedSince),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"if-none-match", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfNoneMatch),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"if-range", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfRange),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"if-unmodified-since", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::IfUnmodifiedSince),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"max-forwards", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::MaxForwards),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"proxy-authorization", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::ProxyAuthorization),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"range", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Range),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"referer", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::Referer),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"te", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::TE),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (b"user-agent", v) => Ok((
             ReqHeader::ReqOnly(ReqOnlyHeader::UserAgent),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
         (name, v) => Ok((
             ReqHeader::Other(
                 AsciiString::from_ascii(name)
-                    .map_err(|e| Ascii(e.ascii_error()))?
+                    .map_err(|e| ReqHeadParsingError::Ascii(e.ascii_error()))?
                     .to_string(),
             ),
-            HeaderValue::Plain(v.to_string()),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
         )),
     }
 }
 
+fn parse_header_value_plain(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
+    parse_header_value(value, |v| Ok(SimpleHeaderValue::Plain(v.to_string())))
+}
+
+fn parse_header_value_mime(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
+    parse_header_value(value, |v| {
+        Ok(SimpleHeaderValue::Mime(
+            Mime::from_str(v.as_str())
+                .map_err(|_| ReqHeadParsingError::Header(HeaderParsingError::InvalidMime))?,
+        ))
+    })
+}
+
 /// Parse a header value that is made of a list of comma-separated values.
-fn parse_header_value(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
+fn parse_header_value<F>(
+    value: &AsciiStr,
+    main_value_parser: F,
+) -> Result<HeaderValue, ReqHeadParsingError>
+where
+    F: Fn(&AsciiStr) -> Result<SimpleHeaderValue, ReqHeadParsingError>,
+{
     let values = value
         .split(AsciiChar::Comma)
         .map(|l| l.trim())
@@ -325,52 +351,68 @@ fn parse_header_value(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingErr
     if values.is_empty() {
         return Err(ReqHeadParsingError::Header(HeaderParsingError::NoComponent));
     }
-    let values: Vec<(
-        String,
-        BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
-    )> = values.iter().map(|m| parse_value_and_attr(m)).collect();
-    match values.len() {
+    let mut parsed_values = Vec::new();
+    for m in values {
+        let v = parse_value_and_attr(m, |v| main_value_parser(v))?;
+        parsed_values.push(v);
+    }
+    match parsed_values.len() {
         0 => Err(ReqHeadParsingError::Header(HeaderParsingError::NoComponent)),
-        _ => Ok(HeaderValue::Parsed(values)),
+        _ => Ok(HeaderValue::Parsed(ParsedHeaderValue(parsed_values))),
     }
 }
-
 /// Parse a value that is made of a string and a list of attributes, separated by a semicolon.
-fn parse_value_and_attr(
+fn parse_value_and_attr<F>(
     value_str: &AsciiStr,
-) -> (
-    String,
-    BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
-) {
+    main_value_parser: F,
+) -> Result<
+    (
+        SimpleHeaderValue,
+        BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+    ),
+    ReqHeadParsingError,
+>
+where
+    F: Fn(&AsciiStr) -> Result<SimpleHeaderValue, ReqHeadParsingError>,
+{
     if value_str.chars().any(|c_| c_ == ';') {
         let mut values_it = value_str.split(AsciiChar::Semicolon);
         let main_value = values_it.next().unwrap();
-        let attributes = values_it
-            .filter_map(|s| {
-                let split = s.split(AsciiChar::Equal).collect::<Vec<_>>();
-                match split.len() {
-                    1 => Some((split[0], AsciiStr::from_ascii(&[]).unwrap())),
-                    2 => Some((split[0], split[1])),
-                    _ => None,
-                }
-            })
-            .map(|(attr_name, attr_value)| {
-                match (
-                    attr_name.to_ascii_lowercase().as_bytes(),
-                    attr_value.to_ascii_lowercase().as_bytes(),
-                ) {
-                    (b"charset", b"utf-8") => {
-                        (HeaderValueMemberName::Charset, HeaderValueMemberValue::UTF8)
-                    }
-                    _ => (
-                        HeaderValueMemberName::Other(attr_name.to_string()),
-                        HeaderValueMemberValue::Other(attr_value.to_string()),
+        let mut attributes = BTreeMap::new();
+
+        for s in values_it {
+            let split = s.split(AsciiChar::Equal).collect::<Vec<_>>();
+            let (member_name, member_value) = match split.len() {
+                1 => (split[0], AsciiStr::from_ascii(&[]).unwrap()),
+                2 => (split[0], split[1]),
+                _ => return Err(ReqHeadParsingError::Header(HeaderParsingError::InvalidMime)),
+            };
+
+            let (member_name, member_value) = match (
+                member_name.to_ascii_lowercase().as_bytes(),
+                member_value.to_ascii_lowercase().as_bytes(),
+            ) {
+                (b"q", _) => (
+                    HeaderValueMemberName::Quality,
+                    HeaderValueMemberValue::Float(
+                        NotNan::new(member_value.as_str().parse::<f32>().map_err(|_| {
+                            ReqHeadParsingError::Header(HeaderParsingError::InvalidFloat)
+                        })?)
+                        .map_err(|_| {
+                            ReqHeadParsingError::Header(HeaderParsingError::InvalidFloat)
+                        })?,
                     ),
-                }
-            })
-            .collect();
-        (main_value.to_string(), attributes)
+                ),
+                _ => (
+                    HeaderValueMemberName::Other(member_name.to_string()),
+                    HeaderValueMemberValue::Other(member_value.to_string()),
+                ),
+            };
+
+            attributes.insert(member_name, member_value);
+        }
+        Ok((main_value_parser(main_value)?, attributes))
     } else {
-        (value_str.to_string(), BTreeMap::new())
+        Ok((main_value_parser(value_str)?, BTreeMap::new()))
     }
 }

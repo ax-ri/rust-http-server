@@ -1,9 +1,12 @@
-use crate::http_req::{HttpReq, ReqTarget, ReqVerb};
+use crate::http_req::{HeaderValue, HttpReq, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
 use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
+use std::collections::hash_map::Entry;
 use std::io::Read;
 
+use crate::http_header::{EntityHeader, ResHeader, SimpleHeaderValue};
 use crate::http_res::{HttpRes, ResBody};
 use crate::res_builder::ResBuilder;
+use crate::utils;
 use chrono::Utc;
 use log::{debug, error, info, warn};
 use std::io::{BufRead, BufReader, Write};
@@ -141,12 +144,12 @@ impl<'a> ClientHandler<'a> {
                 warn!("Error parsing request header: {:?}", error)
             }
         };
-        self.serve_error(400);
+        self.serve_error(400, true);
     }
 
-    fn serve_error(&mut self, status_code: u16) {
+    fn serve_error(&mut self, status_code: u16, with_body: bool) {
         let mut res_builder = ResBuilder::new("HTTP/1.1");
-        let res = res_builder.build_error(status_code);
+        let res = res_builder.build_error(status_code, with_body);
         self.send_response(res);
     }
 
@@ -166,7 +169,7 @@ impl<'a> ClientHandler<'a> {
         let mut res_builder = ResBuilder::new(req.version());
         match req.target() {
             // target '*' not supported for get resource
-            ReqTarget::All => self.serve_error(400),
+            ReqTarget::All => self.serve_error(400, true),
             // serve target from path
             ReqTarget::Path(path, _) => {
                 // convert target resource path to ile system path
@@ -176,7 +179,7 @@ impl<'a> ClientHandler<'a> {
 
                 // prevent path traversal: the resource path must be a sub-path of the doc root
                 if !full_path.starts_with(self.settings.document_root.as_path()) {
-                    self.serve_error(403);
+                    self.serve_error(403, true);
                     return;
                 }
 
@@ -191,14 +194,16 @@ impl<'a> ClientHandler<'a> {
                             Err(err) => {
                                 debug!("error reading directory: {:?}", err);
                                 match err.kind() {
-                                    std::io::ErrorKind::NotFound => self.serve_error(404),
-                                    std::io::ErrorKind::PermissionDenied => self.serve_error(403),
-                                    _ => self.serve_error(500),
+                                    std::io::ErrorKind::NotFound => self.serve_error(404, true),
+                                    std::io::ErrorKind::PermissionDenied => {
+                                        self.serve_error(403, true)
+                                    }
+                                    _ => self.serve_error(500, true),
                                 }
                             }
                         }
                     } else {
-                        self.serve_error(403);
+                        self.serve_error(403, true);
                     }
                     return;
                 }
@@ -211,9 +216,9 @@ impl<'a> ClientHandler<'a> {
                     Err(err) => {
                         debug!("error reading file: {:?}", err);
                         match err.kind() {
-                            std::io::ErrorKind::NotFound => self.serve_error(404),
-                            std::io::ErrorKind::PermissionDenied => self.serve_error(403),
-                            _ => self.serve_error(500),
+                            std::io::ErrorKind::NotFound => self.serve_error(404, true),
+                            std::io::ErrorKind::PermissionDenied => self.serve_error(403, true),
+                            _ => self.serve_error(500, true),
                         }
                     }
                 }
@@ -222,6 +227,40 @@ impl<'a> ClientHandler<'a> {
     }
 
     fn send_response(&mut self, res: &mut HttpRes) {
+        // check whether the response content-type is accepted by the sender
+        if let Some(req) = self.current_req.as_mut()
+            && let Entry::Occupied(accepted) = req
+                .headers()
+                .entry(ReqHeader::ReqOnly(ReqOnlyHeader::Accept))
+            && let Entry::Occupied(actual) = res
+                .headers()
+                .entry(ResHeader::EntityHeader(EntityHeader::ContentType))
+            && let HeaderValue::Simple(SimpleHeaderValue::Mime(actual)) = actual.get()
+        {
+            match accepted.get() {
+                HeaderValue::Simple(SimpleHeaderValue::Mime(accepted)) => {
+                    dbg!(&actual);
+                    if !utils::are_mime_compatible(accepted, actual) {
+                        self.serve_error(415, false);
+                        return;
+                    }
+                }
+                HeaderValue::Parsed(v) => {
+                    if v.0.iter().all(|(v, _)| match v {
+                        SimpleHeaderValue::Mime(accepted) => {
+                            !utils::are_mime_compatible(accepted, actual)
+                        }
+                        _ => true,
+                    }) {
+                        self.serve_error(415, false);
+                        return;
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        // log request and response
         info!(
             "{} - - {} {} {} {}",
             self.peer_addr,
@@ -236,15 +275,16 @@ impl<'a> ClientHandler<'a> {
             res.body_len()
         );
 
+        // write response head to socket
         let res_head = res.head_bytes();
         if let Err(e) = self.stream.write_all(&res_head) {
             warn!("Cannot write response head: {:?}", e);
         }
-
         if let Err(e) = self.stream.flush() {
             warn!("Cannot flush response head: {:?}", e)
         }
 
+        // write response body (if any) to socket
         match res.body_ref() {
             Some(ResBody::Bytes(bytes)) => {
                 debug!("sending {} bytes", bytes.len());

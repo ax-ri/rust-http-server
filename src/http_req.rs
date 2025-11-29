@@ -1,6 +1,6 @@
 //! Data structures for modeling an HTTP request.
 
-use crate::http_header::GeneralHeader;
+use crate::http_header::{GeneralHeader, SimpleHeaderValue};
 pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -63,7 +63,7 @@ impl ReqHead {
         self.headers
             .get(&ReqHeader::GeneralHeader(GeneralHeader::Connection))
             .is_some_and(|h| match h {
-                HeaderValue::Plain(v) => v.eq("close"),
+                HeaderValue::Simple(SimpleHeaderValue::Plain(v)) => v.eq("close"),
                 _ => false,
             })
     }
@@ -121,5 +121,9 @@ impl HttpReq {
 
     pub fn should_close(&self) -> bool {
         self.head.should_close()
+    }
+
+    pub fn headers(&mut self) -> &mut HashMap<ReqHeader, HeaderValue> {
+        &mut self.head.headers
     }
 }
