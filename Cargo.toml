@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+argparse-rs = "0.1.0"
 ascii = "1.1.0"
 chrono = "0.4.42"
-clap = { version = "4.5.53", features = ["derive"] }
 env_logger = "0.11.8"
 log = "0.4.28"
 mime_guess = "2.0.5"

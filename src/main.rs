@@ -7,44 +7,65 @@ mod server;
 mod utils;
 
 use crate::server::Settings;
-use clap::Parser;
+use argparse_rs::{ArgParser, ArgType};
 use log::{debug, info};
 use server::Server;
 use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    #[arg(short = 'a', long, help = "socket address")]
-    address: SocketAddr,
-    #[arg(short = 'r', long = "root", help = "directory to serve resources from")]
-    document_root: PathBuf,
-    #[arg(short = 'd', long, default_value = "false")]
-    allow_dir_listing: bool,
+fn parse_args() -> Result<Settings, String> {
+    let mut arg_parser = ArgParser::new(String::from("rust-http-server"));
+    arg_parser.add_opt(
+        "address",
+        None,
+        'a',
+        true,
+        "Socket address",
+        ArgType::Option,
+    );
+    arg_parser.add_opt(
+        "doc-root",
+        None,
+        'r',
+        true,
+        "Directory root to serve resources from",
+        ArgType::Option,
+    );
+    arg_parser.add_opt(
+        "dir-listing",
+        Some("false"),
+        'd',
+        false,
+        "Allow directory listing",
+        ArgType::Flag,
+    );
+    let args = arg_parser.parse(env::args().collect::<Vec<String>>().iter())?;
+
+    Ok(Settings {
+        address: args
+            .get::<SocketAddr>("address")
+            .ok_or("invalid socket address")?,
+        document_root: args
+            .get::<PathBuf>("doc-root")
+            .ok_or("invalid document root")?,
+        allow_dir_listing: args
+            .get::<bool>("dir-listing")
+            .ok_or("invalid value for directory listing")?,
+    })
 }
 
-impl From<Args> for Settings {
-    fn from(value: Args) -> Self {
-        Self {
-            address: value.address,
-            document_root: value.document_root,
-            allow_dir_listing: value.allow_dir_listing,
-        }
-    }
-}
-
-fn main() {
+fn main() -> Result<(), String> {
     // set default log level to info
     if env::var("RUST_LOG").is_err() {
         unsafe { env::set_var("RUST_LOG", "info") }
     }
     env_logger::init();
-    let args = Args::parse();
-    let server_settings = args.into();
+
+    let server_settings = parse_args()?;
     debug!("server settings: {:?}", server_settings);
     info!("Starting server");
-    let mut server = Server::new(server_settings).unwrap();
-    server.listen()
+    let mut server = Server::new(server_settings).map_err(|e| e.to_string())?;
+    server.listen();
+    Ok(())
 }
