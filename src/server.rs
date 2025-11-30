@@ -1,7 +1,7 @@
 use crate::http_req::{HeaderValue, HttpReq, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
 use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
 use std::collections::hash_map::Entry;
-use std::io::Read;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt};
 
 use crate::http_header::{EntityHeader, ResHeader, SimpleHeaderValue};
 use crate::http_res::{HttpRes, ResBody};
@@ -9,11 +9,12 @@ use crate::res_builder::ResBuilder;
 use crate::utils;
 use chrono::Utc;
 use log::{debug, error, info, warn};
-use std::io::{BufRead, BufReader, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Settings {
     pub address: SocketAddr,
     pub document_root: PathBuf,
@@ -26,17 +27,22 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(settings: Settings) -> Result<Self, std::io::Error> {
-        TcpListener::bind(settings.address).map(|listener| Self { listener, settings })
+    pub async fn new(settings: Settings) -> Result<Self, std::io::Error> {
+        let listener = TcpListener::bind(settings.address).await?;
+
+        Ok(Self { listener, settings })
     }
 
-    pub fn listen(&mut self) {
-        // accept connections and process them serially
+    pub async fn listen(&mut self) {
+        // accept connections and process them concurrently
         loop {
-            match self.listener.accept() {
+            match self.listener.accept().await {
                 Ok((stream, _addr)) => {
-                    let mut handler = ClientHandler::new(&self.settings, stream);
-                    handler.handle();
+                    let settings = self.settings.clone();
+                    tokio::spawn(async {
+                        let mut handler = ClientHandler::new(settings, stream);
+                        handler.handle().await;
+                    });
                 }
                 Err(err) => error!("Cannot accept TCP connection, {:?}", err),
             }
@@ -44,15 +50,15 @@ impl Server {
     }
 }
 
-struct ClientHandler<'a> {
-    settings: &'a Settings,
+struct ClientHandler {
+    settings: Settings,
     stream: TcpStream,
     peer_addr: String,
     current_req: Option<HttpReq>,
 }
 
-impl<'a> ClientHandler<'a> {
-    fn new(settings: &'a Settings, stream: TcpStream) -> Self {
+impl ClientHandler {
+    fn new(settings: Settings, stream: TcpStream) -> Self {
         let peer_addr = stream.peer_addr().unwrap().to_string();
         Self {
             settings,
@@ -62,11 +68,8 @@ impl<'a> ClientHandler<'a> {
         }
     }
 
-    fn handle(&mut self) {
+    async fn handle(&mut self) {
         info!("Connection received from: {}", self.peer_addr);
-
-        // use a buffered reader to read the stream one line at a time
-        let mut buf_reader = BufReader::new(self.stream.try_clone().expect("Cannot clone stream"));
 
         let mut req_head_parser = ReqHeadParser::new();
 
@@ -76,13 +79,16 @@ impl<'a> ClientHandler<'a> {
         while !connection_closed {
             req_head_parser.reset();
 
+            // use a buffered reader to read the stream one line at a time
+            let mut buf_reader = BufReader::new(&mut self.stream);
+
             debug!("waiting for request head");
             while !req_head_parser.is_complete() {
                 // read one line from the stream
                 // with a maximum limit on bytes read (8000)
                 let mut line: Vec<u8> = Vec::new();
                 let mut handle = buf_reader.take(8000);
-                let result = handle.read_until(b'\n', &mut line);
+                let result = handle.read_until(b'\n', &mut line).await;
                 buf_reader = handle.into_inner();
 
                 // handle connection closing
@@ -105,7 +111,7 @@ impl<'a> ClientHandler<'a> {
                 break;
             }
             if let Some(e) = req_parsing_error.as_ref() {
-                self.handle_req_parsing_error(e);
+                self.handle_req_parsing_error(e).await;
                 continue;
             }
 
@@ -116,23 +122,23 @@ impl<'a> ClientHandler<'a> {
                     debug!("request head parsing done");
 
                     self.current_req = Some(HttpReq::new(Utc::now(), parsed_head));
-                    self.serve_req();
+                    self.serve_req().await;
                     if self.current_req.as_ref().unwrap().should_close() {
-                        if let Err(e) = self.stream.shutdown(Shutdown::Both) {
+                        if let Err(e) = self.stream.shutdown().await {
                             warn!("Cannot close connection, {:?}", e);
                         };
                         info!("Closing connection");
                         connection_closed = true;
                     }
                 }
-                Err(e) => self.handle_req_parsing_error(&e),
+                Err(e) => self.handle_req_parsing_error(&e).await,
             }
         }
 
         info!("Connection closed: {}", self.peer_addr);
     }
 
-    fn handle_req_parsing_error(&mut self, error: &ReqHeadParsingError) {
+    async fn handle_req_parsing_error(&mut self, error: &ReqHeadParsingError) {
         match error {
             ReqHeadParsingError::Ascii(error) => {
                 warn!("Error parsing request as ASCII: {:?}", error)
@@ -144,32 +150,40 @@ impl<'a> ClientHandler<'a> {
                 warn!("Error parsing request header: {:?}", error)
             }
         };
-        self.serve_error(400, true);
+        self.serve_error(400, true).await;
     }
 
-    fn serve_error(&mut self, status_code: u16, with_body: bool) {
+    async fn serve_error(&mut self, status_code: u16, with_body: bool) {
         let mut res_builder = ResBuilder::new("HTTP/1.1");
         let res = res_builder.build_error(status_code, with_body);
-        self.send_response(res);
+        Box::pin(self.send_response(res)).await;
     }
 
-    fn serve_req(&mut self) {
+    async fn serve_io_error(&mut self, err: &tokio::io::Error) {
+        match err.kind() {
+            std::io::ErrorKind::NotFound => self.serve_error(404, true).await,
+            std::io::ErrorKind::PermissionDenied => self.serve_error(403, true).await,
+            _ => self.serve_error(500, true).await,
+        }
+    }
+
+    async fn serve_req(&mut self) {
         debug!("serving request");
 
         match self.current_req.as_ref().unwrap().verb() {
-            ReqVerb::Get => self.serve_static_resource(),
+            ReqVerb::Get => self.serve_static_resource().await,
             //_ => self.serve_error(405),
         };
 
         debug!("request served");
     }
 
-    fn serve_static_resource(&mut self) {
+    async fn serve_static_resource(&mut self) {
         let req = self.current_req.as_ref().unwrap();
         let mut res_builder = ResBuilder::new(req.version());
         match req.target() {
             // target '*' not supported for get resource
-            ReqTarget::All => self.serve_error(400, true),
+            ReqTarget::All => self.serve_error(400, true).await,
             // serve target from path
             ReqTarget::Path(path, _) => {
                 // convert target resource path to ile system path
@@ -179,7 +193,7 @@ impl<'a> ClientHandler<'a> {
 
                 // prevent path traversal: the resource path must be a sub-path of the doc root
                 if !full_path.starts_with(self.settings.document_root.as_path()) {
-                    self.serve_error(403, true);
+                    self.serve_error(403, true).await;
                     return;
                 }
 
@@ -189,44 +203,34 @@ impl<'a> ClientHandler<'a> {
                         match res_builder.list_directory(full_path, path) {
                             Ok(()) => {
                                 let res = res_builder.do_build();
-                                self.send_response(res)
+                                self.send_response(res).await
                             }
                             Err(err) => {
                                 debug!("error reading directory: {:?}", err);
-                                match err.kind() {
-                                    std::io::ErrorKind::NotFound => self.serve_error(404, true),
-                                    std::io::ErrorKind::PermissionDenied => {
-                                        self.serve_error(403, true)
-                                    }
-                                    _ => self.serve_error(500, true),
-                                }
+                                self.serve_io_error(&err).await;
                             }
                         }
                     } else {
-                        self.serve_error(403, true);
+                        self.serve_error(403, true).await;
                     }
                     return;
                 }
 
-                match res_builder.set_file_body(full_path) {
+                match res_builder.set_file_body(full_path).await {
                     Ok(()) => {
                         let res = res_builder.do_build();
-                        self.send_response(res)
+                        self.send_response(res).await
                     }
                     Err(err) => {
                         debug!("error reading file: {:?}", err);
-                        match err.kind() {
-                            std::io::ErrorKind::NotFound => self.serve_error(404, true),
-                            std::io::ErrorKind::PermissionDenied => self.serve_error(403, true),
-                            _ => self.serve_error(500, true),
-                        }
+                        self.serve_io_error(&err).await;
                     }
                 }
             }
         }
     }
 
-    fn send_response(&mut self, res: &mut HttpRes) {
+    async fn send_response(&mut self, res: &mut HttpRes) {
         // check whether the response content-type is accepted by the sender
         if let Some(req) = self.current_req.as_mut()
             && let Entry::Occupied(accepted) = req
@@ -241,7 +245,7 @@ impl<'a> ClientHandler<'a> {
                 HeaderValue::Simple(SimpleHeaderValue::Mime(accepted)) => {
                     dbg!(&actual);
                     if !utils::are_mime_compatible(accepted, actual) {
-                        self.serve_error(415, false);
+                        self.serve_error(415, false).await;
                         return;
                     }
                 }
@@ -252,7 +256,7 @@ impl<'a> ClientHandler<'a> {
                         }
                         _ => true,
                     }) {
-                        self.serve_error(415, false);
+                        self.serve_error(415, false).await;
                         return;
                     }
                 }
@@ -277,33 +281,30 @@ impl<'a> ClientHandler<'a> {
 
         // write response head to socket
         let res_head = res.head_bytes();
-        if let Err(e) = self.stream.write_all(&res_head) {
+        if let Err(e) = self.stream.write_all(&res_head).await {
             warn!("Cannot write response head: {:?}", e);
         }
-        if let Err(e) = self.stream.flush() {
+        if let Err(e) = self.stream.flush().await {
             warn!("Cannot flush response head: {:?}", e)
         }
 
         // write response body (if any) to socket
-        match res.body_ref() {
+        match res.body_mut() {
             Some(ResBody::Bytes(bytes)) => {
                 debug!("sending {} bytes", bytes.len());
-                if let Err(e) = self.stream.write_all(bytes) {
+                if let Err(e) = self.stream.write_all(bytes).await {
                     warn!("Cannot write response body bytes: {:?}", e);
                 }
             }
-            Some(ResBody::Stream(file, _)) => {
-                let mut file = file;
-                match std::io::copy(&mut file, &mut self.stream) {
-                    Ok(n) => debug!("sent {} bytes", n),
-                    Err(e) => {
-                        warn!("Cannot write response body stream: {:?}", e);
-                    }
+            Some(ResBody::Stream(file, _)) => match tokio::io::copy(file, &mut self.stream).await {
+                Ok(n) => debug!("sent {} bytes", n),
+                Err(e) => {
+                    warn!("Cannot write response body stream: {:?}", e);
                 }
-            }
+            },
             None => (),
         }
-        if let Err(e) = self.stream.flush() {
+        if let Err(e) = self.stream.flush().await {
             warn!("Cannot flush response body: {:?}", e)
         }
     }

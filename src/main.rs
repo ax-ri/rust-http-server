@@ -55,7 +55,8 @@ fn parse_args() -> Result<Settings, String> {
     })
 }
 
-fn main() -> Result<(), String> {
+#[tokio::main]
+async fn main() -> Result<(), String> {
     // set default log level to info
     if env::var("RUST_LOG").is_err() {
         unsafe { env::set_var("RUST_LOG", "info") }
@@ -65,7 +66,9 @@ fn main() -> Result<(), String> {
     let server_settings = parse_args()?;
     debug!("server settings: {:?}", server_settings);
     info!("Starting server");
-    let mut server = Server::new(server_settings).map_err(|e| e.to_string())?;
-    server.listen();
+    let mut server = Server::new(server_settings)
+        .await
+        .map_err(|e| e.to_string())?;
+    server.listen().await;
     Ok(())
 }

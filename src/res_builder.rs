@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
+use tokio::fs::File;
 
 pub struct ResBuilder {
     res: HttpRes,
@@ -100,7 +101,7 @@ impl ResBuilder {
         Ok(())
     }
 
-    pub fn set_file_body(&mut self, file_path: &Path) -> Result<(), std::io::Error> {
+    pub async fn set_file_body(&mut self, file_path: &Path) -> Result<(), std::io::Error> {
         // set content type
         let mime_type = MimeGuess::from_path(file_path).first_or_octet_stream();
         self.res.set_header(
@@ -111,8 +112,8 @@ impl ResBuilder {
         let metadata = fs::metadata(file_path)?;
         // set content
         if metadata.len() > 1024 * 1024 {
-            let file = fs::File::open(file_path)?;
-            let len = file.metadata()?.len();
+            let file = File::open(file_path).await?;
+            let len = file.metadata().await?.len();
             self.res.set_body(Some(ResBody::Stream(file, len)));
         } else {
             let content = fs::read(file_path)?;

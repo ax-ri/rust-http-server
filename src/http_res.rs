@@ -3,7 +3,7 @@
 use crate::http_header::ResHeader;
 use crate::http_req::HeaderValue;
 use std::collections::HashMap;
-use std::fs::File;
+use tokio::fs::File;
 
 pub fn get_reason_phrase(status_code: u16) -> String {
     match status_code {
@@ -119,6 +119,10 @@ impl HttpRes {
 
     pub fn body_ref(&self) -> Option<&ResBody> {
         self.body.as_ref()
+    }
+
+    pub fn body_mut(&mut self) -> Option<&mut ResBody> {
+        self.body.as_mut()
     }
 
     pub fn body_len(&self) -> usize {

@@ -23,7 +23,7 @@ below.
       images, PDF files etc.)
     - [ ] Support for [basic authentication](https://www.rfc-editor.org/rfc/rfc7617)
 - [ ] Medium features
-    - [ ] Handling several concurrent connections
+    - [x] Handling several concurrent connections
     - [ ] Support of usual [request headers](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers) (
       *accept* headers, CORS, web socket upgrade request etc.)
     - [ ] TLS encryption support (HTTPS)
