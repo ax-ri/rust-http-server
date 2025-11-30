@@ -1,7 +1,8 @@
 use crate::http_req::{HeaderValue, HttpReq, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
 use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
 use std::collections::hash_map::Entry;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite};
+use tokio_rustls::TlsAcceptor;
 
 use crate::http_header::{EntityHeader, ResHeader, SimpleHeaderValue};
 use crate::http_res::{HttpRes, ResBody};
@@ -9,40 +10,86 @@ use crate::res_builder::ResBuilder;
 use crate::utils;
 use chrono::Utc;
 use log::{debug, error, info, warn};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub address: SocketAddr,
     pub document_root: PathBuf,
     pub allow_dir_listing: bool,
+    pub ssl_cert_path: Option<PathBuf>,
+    pub ssl_key_path: Option<PathBuf>,
 }
 
 pub struct Server {
     listener: TcpListener,
     settings: Settings,
+    tls_acceptor: Option<TlsAcceptor>,
 }
 
 impl Server {
     pub async fn new(settings: Settings) -> Result<Self, std::io::Error> {
         let listener = TcpListener::bind(settings.address).await?;
-
-        Ok(Self { listener, settings })
+        if let Some(cert_path) = settings.ssl_cert_path.as_ref()
+            && let Some(key_path) = settings.ssl_key_path.as_ref()
+        {
+            let certs = CertificateDer::pem_file_iter(cert_path)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            let key = PrivateKeyDer::from_pem_file(key_path).unwrap();
+            let config = rustls::ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(certs, key)
+                .unwrap();
+            Ok(Self {
+                listener,
+                settings,
+                tls_acceptor: Some(TlsAcceptor::from(Arc::new(config))),
+            })
+        } else {
+            Ok(Self {
+                listener,
+                settings,
+                tls_acceptor: None,
+            })
+        }
     }
 
     pub async fn listen(&mut self) {
         // accept connections and process them concurrently
         loop {
             match self.listener.accept().await {
-                Ok((stream, _addr)) => {
+                Ok((stream, peer_addr)) => {
                     let settings = self.settings.clone();
-                    tokio::spawn(async {
-                        let mut handler = ClientHandler::new(settings, stream);
-                        handler.handle().await;
-                    });
+
+                    if let Some(acceptor) = self.tls_acceptor.as_ref() {
+                        match acceptor.accept(stream).await {
+                            Ok(stream) => {
+                                tokio::spawn(async move {
+                                    let mut handler =
+                                        ClientHandler::new(settings, peer_addr.to_string(), stream);
+                                    handler.handle().await;
+                                });
+                            }
+                            Err(e) => {
+                                warn!("Cannot accept TLS connection: {}", e);
+                                continue;
+                            }
+                        }
+                    } else {
+                        tokio::spawn(async move {
+                            let mut handler =
+                                ClientHandler::new(settings, peer_addr.to_string(), stream);
+                            handler.handle().await;
+                        });
+                    }
                 }
                 Err(err) => error!("Cannot accept TCP connection, {:?}", err),
             }
@@ -50,16 +97,15 @@ impl Server {
     }
 }
 
-struct ClientHandler {
+struct ClientHandler<Stream: AsyncRead + AsyncWrite + Unpin> {
     settings: Settings,
-    stream: TcpStream,
+    stream: Stream,
     peer_addr: String,
     current_req: Option<HttpReq>,
 }
 
-impl ClientHandler {
-    fn new(settings: Settings, stream: TcpStream) -> Self {
-        let peer_addr = stream.peer_addr().unwrap().to_string();
+impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
+    fn new(settings: Settings, peer_addr: String, stream: Stream) -> Self {
         Self {
             settings,
             stream,

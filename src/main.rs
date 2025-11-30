@@ -40,6 +40,22 @@ fn parse_args() -> Result<Settings, String> {
         "Allow directory listing",
         ArgType::Flag,
     );
+    arg_parser.add_opt(
+        "ssl-cert",
+        None,
+        'c',
+        false,
+        "SSL certificate for HTTPS",
+        ArgType::Option,
+    );
+    arg_parser.add_opt(
+        "ssl-key",
+        None,
+        'k',
+        false,
+        "SSL key for HTTPS",
+        ArgType::Option,
+    );
     let args = arg_parser.parse(env::args().collect::<Vec<String>>().iter())?;
 
     Ok(Settings {
@@ -52,6 +68,8 @@ fn parse_args() -> Result<Settings, String> {
         allow_dir_listing: args
             .get::<bool>("dir-listing")
             .ok_or("invalid value for directory listing")?,
+        ssl_cert_path: args.get::<PathBuf>("ssl-cert"),
+        ssl_key_path: args.get::<PathBuf>("ssl-key"),
     })
 }
 
