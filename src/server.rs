@@ -33,25 +33,43 @@ pub struct Server {
     tls_acceptor: Option<TlsAcceptor>,
 }
 
+pub enum Error {
+    Io(io::Error),
+    Tls(rustls::Error),
+    TlsPem(rustls::pki_types::pem::Error),
+}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "I/O error: {}", e),
+            Self::Tls(e) => write!(f, "TLS error: {}", e),
+            Self::TlsPem(e) => write!(f, "TLS Pem error: {}", e),
+        }
+    }
+}
+
 impl Server {
     pub async fn new(settings: Settings) -> Result<Self, std::io::Error> {
         let listener = TcpListener::bind(settings.address).await?;
+        let listener = tokio::net::TcpListener::bind(settings.address)
+            .await
+            .map_err(Error::Io)?;
         if let Some(cert_path) = settings.ssl_cert_path.as_ref()
             && let Some(key_path) = settings.ssl_key_path.as_ref()
         {
             let certs = CertificateDer::pem_file_iter(cert_path)
-                .unwrap()
+                .map_err(Error::TlsPem)?
                 .collect::<Result<Vec<_>, _>>()
-                .unwrap();
-            let key = PrivateKeyDer::from_pem_file(key_path).unwrap();
+                .map_err(Error::TlsPem)?;
+            let key = PrivateKeyDer::from_pem_file(key_path).map_err(Error::TlsPem)?;
             let config = rustls::ServerConfig::builder()
                 .with_no_client_auth()
                 .with_single_cert(certs, key)
-                .unwrap();
+                .map_err(Error::Tls)?;
             Ok(Self {
                 listener,
                 settings,
-                tls_acceptor: Some(TlsAcceptor::from(Arc::new(config))),
+                tls_acceptor: Some(tokio_rustls::TlsAcceptor::from(sync::Arc::new(config))),
             })
         } else {
             Ok(Self {
