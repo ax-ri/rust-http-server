@@ -1,10 +1,6 @@
 //! Data structures for modeling HTTP headers.
 
-use mime_guess::Mime;
-use ordered_float::NotNan;
-use std::collections::BTreeMap;
-use std::fmt::{Display, Formatter};
-use std::hash::Hash;
+use std::{collections, fmt};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 /// Http header that can be part of requests and responses.
@@ -20,8 +16,8 @@ pub enum GeneralHeader {
     Warning,
 }
 
-impl Display for GeneralHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for GeneralHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             GeneralHeader::CacheControl => write!(f, "Cache-Control"),
             GeneralHeader::Connection => write!(f, "Connection"),
@@ -42,8 +38,8 @@ pub enum HeaderValueMemberName {
     Other(String),
 }
 
-impl Display for HeaderValueMemberName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for HeaderValueMemberName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Quality => write!(f, "q"),
             Self::Other(name) => write!(f, "{}", name),
@@ -53,12 +49,12 @@ impl Display for HeaderValueMemberName {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum HeaderValueMemberValue {
-    Float(NotNan<f32>),
+    Float(ordered_float::NotNan<f32>),
     Other(String),
 }
 
-impl Display for HeaderValueMemberValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for HeaderValueMemberValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Float(x) => write!(f, "{}", x),
             Self::Other(name) => write!(f, "{}", name),
@@ -70,11 +66,11 @@ impl Display for HeaderValueMemberValue {
 pub enum SimpleHeaderValue {
     Number(u64),
     Plain(String),
-    Mime(Mime),
+    Mime(mime_guess::Mime),
 }
 
-impl Display for SimpleHeaderValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SimpleHeaderValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{}", n),
             Self::Plain(s) => write!(f, "{}", s),
@@ -87,12 +83,12 @@ impl Display for SimpleHeaderValue {
 pub struct ParsedHeaderValue(
     pub  Vec<(
         SimpleHeaderValue,
-        BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+        collections::BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
     )>,
 );
 
-impl Display for ParsedHeaderValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ParsedHeaderValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -121,8 +117,8 @@ pub enum HeaderValue {
     Parsed(ParsedHeaderValue),
 }
 
-impl Display for HeaderValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for HeaderValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Simple(s) => write!(f, "{}", s),
             Self::Parsed(s) => write!(f, "{}", s),
@@ -153,8 +149,8 @@ pub enum ReqOnlyHeader {
     UserAgent,
 }
 
-impl Display for ReqOnlyHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ReqOnlyHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqOnlyHeader::Accept => write!(f, "Accept"),
             ReqOnlyHeader::AcceptCharset => write!(f, "Accept-Charset"),
@@ -180,6 +176,7 @@ impl Display for ReqOnlyHeader {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
+#[allow(unused)]
 pub enum ResOnlyHeader {
     AcceptRanges,
     Age,
@@ -192,8 +189,8 @@ pub enum ResOnlyHeader {
     WWWAuthenticate,
 }
 
-impl Display for ResOnlyHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ResOnlyHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ResOnlyHeader::AcceptRanges => write!(f, "Accept-Ranges"),
             ResOnlyHeader::Age => write!(f, "Age"),
@@ -209,6 +206,7 @@ impl Display for ResOnlyHeader {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
+#[allow(unused)]
 pub enum EntityHeader {
     Allow,
     ContentEncoding,
@@ -222,8 +220,8 @@ pub enum EntityHeader {
     LastModified,
 }
 
-impl Display for EntityHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for EntityHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EntityHeader::Allow => write!(f, "Allow"),
             EntityHeader::ContentEncoding => write!(f, "Content-Encoding"),
@@ -246,8 +244,8 @@ pub enum ReqHeader {
     Other(String),
 }
 
-impl Display for ReqHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ReqHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqHeader::GeneralHeader(h) => write!(f, "{}", h),
             ReqHeader::ReqOnly(h) => write!(f, "{}", h),
@@ -257,6 +255,7 @@ impl Display for ReqHeader {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
+#[allow(unused)]
 pub enum ResHeader {
     GeneralHeader(GeneralHeader),
     ResOnlyHeader(ResOnlyHeader),
@@ -264,8 +263,8 @@ pub enum ResHeader {
     Other(String),
 }
 
-impl Display for ResHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ResHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ResHeader::GeneralHeader(h) => write!(f, "{}", h),
             ResHeader::ResOnlyHeader(h) => write!(f, "{}", h),

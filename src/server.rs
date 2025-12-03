@@ -1,36 +1,31 @@
-use crate::http_req::{HeaderValue, HttpReq, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
-use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
-use std::collections::hash_map::Entry;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite};
-use tokio_rustls::TlsAcceptor;
-
-use crate::http_header::{EntityHeader, ResHeader, SimpleHeaderValue};
+use crate::http_header::{
+    EntityHeader, HeaderValue, ReqHeader, ReqOnlyHeader, ResHeader, SimpleHeaderValue,
+};
+use crate::http_req::{HttpReq, ReqTarget, ReqVerb};
 use crate::http_res::{HttpRes, ResBody};
+use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
 use crate::res_builder::ResBuilder;
 use crate::utils;
-use chrono::Utc;
+
+use std::{collections, fmt, io, net, path, sync};
+
 use log::{debug, error, info, warn};
 use rustls::pki_types::pem::PemObject;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::io::{AsyncWriteExt, BufReader};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 #[derive(Debug, Clone)]
 pub struct Settings {
-    pub address: SocketAddr,
-    pub document_root: PathBuf,
+    pub address: net::SocketAddr,
+    pub document_root: path::PathBuf,
     pub allow_dir_listing: bool,
-    pub ssl_cert_path: Option<PathBuf>,
-    pub ssl_key_path: Option<PathBuf>,
+    pub ssl_cert_path: Option<path::PathBuf>,
+    pub ssl_key_path: Option<path::PathBuf>,
 }
 
 pub struct Server {
-    listener: TcpListener,
+    listener: tokio::net::TcpListener,
     settings: Settings,
-    tls_acceptor: Option<TlsAcceptor>,
+    tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
 }
 
 pub enum Error {
@@ -38,8 +33,9 @@ pub enum Error {
     Tls(rustls::Error),
     TlsPem(rustls::pki_types::pem::Error),
 }
+
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(e) => write!(f, "I/O error: {}", e),
             Self::Tls(e) => write!(f, "TLS error: {}", e),
@@ -49,19 +45,19 @@ impl fmt::Display for Error {
 }
 
 impl Server {
-    pub async fn new(settings: Settings) -> Result<Self, std::io::Error> {
-        let listener = TcpListener::bind(settings.address).await?;
+    pub async fn new(settings: Settings) -> Result<Self, Error> {
         let listener = tokio::net::TcpListener::bind(settings.address)
             .await
             .map_err(Error::Io)?;
         if let Some(cert_path) = settings.ssl_cert_path.as_ref()
             && let Some(key_path) = settings.ssl_key_path.as_ref()
         {
-            let certs = CertificateDer::pem_file_iter(cert_path)
+            let certs = rustls::pki_types::CertificateDer::pem_file_iter(cert_path)
                 .map_err(Error::TlsPem)?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(Error::TlsPem)?;
-            let key = PrivateKeyDer::from_pem_file(key_path).map_err(Error::TlsPem)?;
+            let key =
+                rustls::pki_types::PrivateKeyDer::from_pem_file(key_path).map_err(Error::TlsPem)?;
             let config = rustls::ServerConfig::builder()
                 .with_no_client_auth()
                 .with_single_cert(certs, key)
@@ -96,8 +92,8 @@ impl Server {
                                     handler.handle().await;
                                 });
                             }
-                            Err(e) => {
-                                warn!("Cannot accept TLS connection: {}", e);
+                            Err(err) => {
+                                warn!("Cannot accept TLS connection: {}", err);
                                 continue;
                             }
                         }
@@ -115,15 +111,19 @@ impl Server {
     }
 }
 
-struct ClientHandler<Stream: AsyncRead + AsyncWrite + Unpin> {
+trait AsyncStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin {}
+impl AsyncStream for tokio::net::TcpStream {}
+impl AsyncStream for tokio_rustls::server::TlsStream<tokio::net::TcpStream> {}
+
+struct ClientHandler<S: AsyncStream> {
     settings: Settings,
-    stream: Stream,
+    stream: S,
     peer_addr: String,
     current_req: Option<HttpReq>,
 }
 
-impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
-    fn new(settings: Settings, peer_addr: String, stream: Stream) -> Self {
+impl<S: AsyncStream> ClientHandler<S> {
+    fn new(settings: Settings, peer_addr: String, stream: S) -> Self {
         Self {
             settings,
             stream,
@@ -138,13 +138,13 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
         let mut req_head_parser = ReqHeadParser::new();
 
         let mut connection_closed = false;
-        let mut req_parsing_error = None;
+        let mut req_parsing_error = Ok(());
 
         while !connection_closed {
             req_head_parser.reset();
 
             // use a buffered reader to read the stream one line at a time
-            let mut buf_reader = BufReader::new(&mut self.stream);
+            let mut buf_reader = tokio::io::BufReader::new(&mut self.stream);
 
             debug!("waiting for request head");
             while !req_head_parser.is_complete() {
@@ -156,8 +156,8 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
                 buf_reader = handle.into_inner();
 
                 // handle connection closing
-                if let Err(e) = result {
-                    warn!("Cannot read line from buffered stream: {:?}", e);
+                if let Err(err) = result {
+                    warn!("Cannot read line from buffered stream: {:?}", err);
                     connection_closed = true;
                     break;
                 };
@@ -166,16 +166,16 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
                     break;
                 }
                 // parse line as part of HTTP request head
-                if let Err(e) = req_head_parser.process_bytes(line) {
-                    req_parsing_error = Some(e);
+                if let Err(err) = req_head_parser.process_bytes(line) {
+                    req_parsing_error = Err(err);
                     break;
                 }
             }
             if connection_closed {
                 break;
             }
-            if let Some(e) = req_parsing_error.as_ref() {
-                self.handle_req_parsing_error(e).await;
+            if let Err(err) = req_parsing_error.as_ref() {
+                self.handle_req_parsing_error(err).await;
                 continue;
             }
 
@@ -185,17 +185,17 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
                 Ok(parsed_head) => {
                     debug!("request head parsing done");
 
-                    self.current_req = Some(HttpReq::new(Utc::now(), parsed_head));
+                    self.current_req = Some(HttpReq::new(chrono::Utc::now(), parsed_head));
                     self.serve_req().await;
                     if self.current_req.as_ref().unwrap().should_close() {
-                        if let Err(e) = self.stream.shutdown().await {
-                            warn!("Cannot close connection, {:?}", e);
+                        if let Err(err) = self.stream.shutdown().await {
+                            warn!("Cannot close connection, {:?}", err);
                         };
                         info!("Closing connection");
                         connection_closed = true;
                     }
                 }
-                Err(e) => self.handle_req_parsing_error(&e).await,
+                Err(err) => self.handle_req_parsing_error(&err).await,
             }
         }
 
@@ -223,10 +223,10 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
         Box::pin(self.send_response(res)).await;
     }
 
-    async fn serve_io_error(&mut self, err: &tokio::io::Error) {
+    async fn serve_io_error(&mut self, err: &io::Error) {
         match err.kind() {
-            std::io::ErrorKind::NotFound => self.serve_error(404, true).await,
-            std::io::ErrorKind::PermissionDenied => self.serve_error(403, true).await,
+            io::ErrorKind::NotFound => self.serve_error(404, true).await,
+            io::ErrorKind::PermissionDenied => self.serve_error(403, true).await,
             _ => self.serve_error(500, true).await,
         }
     }
@@ -253,7 +253,7 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
                 // convert target resource path to ile system path
                 let mut full_path = String::from(self.settings.document_root.to_str().unwrap());
                 full_path.push_str(path);
-                let full_path = Path::new(&full_path);
+                let full_path = path::Path::new(&full_path);
 
                 // prevent path traversal: the resource path must be a sub-path of the doc root
                 if !full_path.starts_with(self.settings.document_root.as_path()) {
@@ -297,10 +297,10 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
     async fn send_response(&mut self, res: &mut HttpRes) {
         // check whether the response content-type is accepted by the sender
         if let Some(req) = self.current_req.as_mut()
-            && let Entry::Occupied(accepted) = req
+            && let collections::hash_map::Entry::Occupied(accepted) = req
                 .headers()
                 .entry(ReqHeader::ReqOnly(ReqOnlyHeader::Accept))
-            && let Entry::Occupied(actual) = res
+            && let collections::hash_map::Entry::Occupied(actual) = res
                 .headers()
                 .entry(ResHeader::EntityHeader(EntityHeader::ContentType))
             && let HeaderValue::Simple(SimpleHeaderValue::Mime(actual)) = actual.get()
@@ -345,31 +345,31 @@ impl<Stream: AsyncRead + AsyncWrite + Unpin> ClientHandler<Stream> {
 
         // write response head to socket
         let res_head = res.head_bytes();
-        if let Err(e) = self.stream.write_all(&res_head).await {
-            warn!("Cannot write response head: {:?}", e);
+        if let Err(err) = self.stream.write_all(&res_head).await {
+            warn!("Cannot write response head: {:?}", err);
         }
-        if let Err(e) = self.stream.flush().await {
-            warn!("Cannot flush response head: {:?}", e)
+        if let Err(err) = self.stream.flush().await {
+            warn!("Cannot flush response head: {:?}", err)
         }
 
         // write response body (if any) to socket
         match res.body_mut() {
             Some(ResBody::Bytes(bytes)) => {
                 debug!("sending {} bytes", bytes.len());
-                if let Err(e) = self.stream.write_all(bytes).await {
-                    warn!("Cannot write response body bytes: {:?}", e);
+                if let Err(err) = self.stream.write_all(bytes).await {
+                    warn!("Cannot write response body bytes: {:?}", err);
                 }
             }
             Some(ResBody::Stream(file, _)) => match tokio::io::copy(file, &mut self.stream).await {
                 Ok(n) => debug!("sent {} bytes", n),
-                Err(e) => {
-                    warn!("Cannot write response body stream: {:?}", e);
+                Err(err) => {
+                    warn!("Cannot write response body stream: {:?}", err);
                 }
             },
             None => (),
         }
-        if let Err(e) = self.stream.flush().await {
-            warn!("Cannot flush response body: {:?}", e)
+        if let Err(err) = self.stream.flush().await {
+            warn!("Cannot flush response body: {:?}", err)
         }
     }
 }

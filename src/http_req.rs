@@ -1,10 +1,9 @@
 //! Data structures for modeling an HTTP request.
 
-use crate::http_header::{GeneralHeader, SimpleHeaderValue};
-pub(crate) use crate::http_header::{HeaderValue, ReqHeader, ReqOnlyHeader};
-use chrono::{DateTime, Utc};
-use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use crate::http_header::{GeneralHeader, HeaderValue, ReqHeader, SimpleHeaderValue};
+
+use std::{collections, fmt};
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
@@ -12,8 +11,8 @@ pub enum ReqVerb {
     Get,
 }
 
-impl Display for ReqVerb {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ReqVerb {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqVerb::Get => f.write_str("GET"),
         }
@@ -27,8 +26,8 @@ pub enum ReqTarget {
     Path(String, String),
 }
 
-impl Display for ReqTarget {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ReqTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqTarget::All => write!(f, "*"),
             ReqTarget::Path(_, original) => write!(f, "{}", original),
@@ -41,7 +40,7 @@ pub struct ReqHead {
     verb: ReqVerb,
     target: ReqTarget,
     version: String,
-    headers: HashMap<ReqHeader, HeaderValue>,
+    headers: collections::HashMap<ReqHeader, HeaderValue>,
 }
 
 impl ReqHead {
@@ -49,7 +48,7 @@ impl ReqHead {
         verb: ReqVerb,
         target: ReqTarget,
         version: String,
-        headers: HashMap<ReqHeader, HeaderValue>,
+        headers: collections::HashMap<ReqHeader, HeaderValue>,
     ) -> Self {
         Self {
             verb,
@@ -69,8 +68,8 @@ impl ReqHead {
     }
 }
 
-impl Display for ReqHead {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ReqHead {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} {:?} HTTP/{}\r\n",
@@ -87,16 +86,16 @@ impl Display for ReqHead {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct HttpReq {
-    date: DateTime<Utc>,
+    date: chrono::DateTime<chrono::Utc>,
     head: ReqHead,
 }
 
 impl HttpReq {
-    pub fn new(date: DateTime<Utc>, head: ReqHead) -> Self {
+    pub fn new(date: chrono::DateTime<chrono::Utc>, head: ReqHead) -> Self {
         Self { date, head }
     }
 
-    pub fn date(&self) -> &DateTime<Utc> {
+    pub fn date(&self) -> &chrono::DateTime<chrono::Utc> {
         &self.date
     }
 
@@ -123,7 +122,7 @@ impl HttpReq {
         self.head.should_close()
     }
 
-    pub fn headers(&mut self) -> &mut HashMap<ReqHeader, HeaderValue> {
+    pub fn headers(&mut self) -> &mut collections::HashMap<ReqHeader, HeaderValue> {
         &mut self.head.headers
     }
 }

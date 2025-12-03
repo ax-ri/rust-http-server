@@ -1,30 +1,26 @@
 //! HTTP request parsing.
 
-use crate::http_req::{HeaderValue, ReqHead, ReqHeader, ReqOnlyHeader, ReqTarget, ReqVerb};
-
 use crate::http_header::{
-    GeneralHeader, HeaderValueMemberName, HeaderValueMemberValue, ParsedHeaderValue,
-    SimpleHeaderValue,
+    GeneralHeader, HeaderValue, HeaderValueMemberName, HeaderValueMemberValue, ParsedHeaderValue,
+    ReqHeader, ReqOnlyHeader, SimpleHeaderValue,
 };
-use ascii::{AsAsciiStrError, AsciiChar, AsciiStr, AsciiString};
+use crate::http_req::{ReqHead, ReqTarget, ReqVerb};
+
+use std::{collections, str::FromStr};
+
 use log::debug;
-use mime_guess::Mime;
-use ordered_float::NotNan;
-use std::cmp::PartialEq;
-use std::collections::{BTreeMap, HashMap};
-use std::str::FromStr;
 
 struct RawReqHead {
-    request_line: AsciiString,
-    headers: HashMap<AsciiString, AsciiString>,
-    last_header_name: Option<AsciiString>,
+    request_line: ascii::AsciiString,
+    headers: collections::HashMap<ascii::AsciiString, ascii::AsciiString>,
+    last_header_name: Option<ascii::AsciiString>,
 }
 
 impl RawReqHead {
     fn new() -> Self {
         Self {
-            request_line: AsciiString::new(),
-            headers: HashMap::new(),
+            request_line: ascii::AsciiString::new(),
+            headers: collections::HashMap::new(),
             last_header_name: None,
         }
     }
@@ -56,7 +52,7 @@ pub enum HeaderParsingError {
 
 #[derive(Debug)]
 pub enum ReqHeadParsingError {
-    Ascii(AsAsciiStrError),
+    Ascii(ascii::AsAsciiStrError),
     FirstLine(FirstLineParsingError),
     Header(HeaderParsingError),
 }
@@ -81,7 +77,7 @@ impl ReqHeadParser {
     }
 
     pub fn process_bytes(&mut self, bytes: Vec<u8>) -> Result<(), ReqHeadParsingError> {
-        let line = AsciiString::from_ascii(bytes)
+        let line = ascii::AsciiString::from_ascii(bytes)
             .map_err(|e| ReqHeadParsingError::Ascii(e.ascii_error()))?;
         debug!("Received line: {:?}", line);
         let line = line.trim();
@@ -92,7 +88,7 @@ impl ReqHeadParser {
                         FirstLineParsingError::EmptyLine,
                     ))
                 } else {
-                    self.raw_req_head.request_line = AsciiString::from(line);
+                    self.raw_req_head.request_line = ascii::AsciiString::from(line);
                     self.state = ReqHeadParserState::Headers;
                     Ok(())
                 }
@@ -107,7 +103,7 @@ impl ReqHeadParser {
                         Some(colon_idx) => {
                             let (name, value) = (&line[..colon_idx], &line[colon_idx + 1..]);
 
-                            if let Some(AsciiChar::Space) = name.last() {
+                            if let Some(ascii::AsciiChar::Space) = name.last() {
                                 return Err(ReqHeadParsingError::Header(
                                     HeaderParsingError::SpaceBeforeColon,
                                 ));
@@ -148,7 +144,7 @@ impl ReqHeadParser {
 
     pub fn do_parse(&mut self) -> Result<ReqHead, ReqHeadParsingError> {
         let (verb, target, version) = parse_first_line(&self.raw_req_head.request_line)?;
-        let mut headers = HashMap::new();
+        let mut headers = collections::HashMap::new();
         for (name, value) in &self.raw_req_head.headers {
             let (name, value) = parse_header(name, value)?;
             headers.insert(name, value);
@@ -164,8 +160,14 @@ impl ReqHeadParser {
 }
 
 /// Parse the first line of an HTTP request (e.g. GET /foo/bar HTTP/1.1)
-fn parse_first_line(line: &AsciiStr) -> Result<(ReqVerb, ReqTarget, String), ReqHeadParsingError> {
-    match *line.split(AsciiChar::Space).collect::<Vec<_>>().as_slice() {
+fn parse_first_line(
+    line: &ascii::AsciiStr,
+) -> Result<(ReqVerb, ReqTarget, String), ReqHeadParsingError> {
+    match *line
+        .split(ascii::AsciiChar::Space)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         [verb, target, version] => Ok((
             parse_http_verb(verb)?,
             parse_http_target(target)?,
@@ -177,7 +179,7 @@ fn parse_first_line(line: &AsciiStr) -> Result<(ReqVerb, ReqTarget, String), Req
     }
 }
 
-fn parse_http_verb(verb: &AsciiStr) -> Result<ReqVerb, ReqHeadParsingError> {
+fn parse_http_verb(verb: &ascii::AsciiStr) -> Result<ReqVerb, ReqHeadParsingError> {
     match verb.as_bytes() {
         b"GET" => Ok(ReqVerb::Get),
         _ => Err(ReqHeadParsingError::FirstLine(
@@ -186,7 +188,7 @@ fn parse_http_verb(verb: &AsciiStr) -> Result<ReqVerb, ReqHeadParsingError> {
     }
 }
 
-fn parse_http_target(target: &AsciiStr) -> Result<ReqTarget, ReqHeadParsingError> {
+fn parse_http_target(target: &ascii::AsciiStr) -> Result<ReqTarget, ReqHeadParsingError> {
     match target.as_bytes() {
         b"*" => Ok(ReqTarget::All),
         _ => Ok(ReqTarget::Path(
@@ -201,8 +203,8 @@ fn parse_http_target(target: &AsciiStr) -> Result<ReqTarget, ReqHeadParsingError
 }
 
 fn parse_header(
-    name: &AsciiStr,
-    value: &AsciiStr,
+    name: &ascii::AsciiStr,
+    value: &ascii::AsciiStr,
 ) -> Result<(ReqHeader, HeaderValue), ReqHeadParsingError> {
     match (name.as_bytes(), value) {
         // general headers
@@ -314,7 +316,7 @@ fn parse_header(
         )),
         (name, v) => Ok((
             ReqHeader::Other(
-                AsciiString::from_ascii(name)
+                ascii::AsciiString::from_ascii(name)
                     .map_err(|e| ReqHeadParsingError::Ascii(e.ascii_error()))?
                     .to_string(),
             ),
@@ -323,14 +325,14 @@ fn parse_header(
     }
 }
 
-fn parse_header_value_plain(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
+fn parse_header_value_plain(value: &ascii::AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
     parse_header_value(value, |v| Ok(SimpleHeaderValue::Plain(v.to_string())))
 }
 
-fn parse_header_value_mime(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
+fn parse_header_value_mime(value: &ascii::AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
     parse_header_value(value, |v| {
         Ok(SimpleHeaderValue::Mime(
-            Mime::from_str(v.as_str())
+            mime_guess::Mime::from_str(v.as_str())
                 .map_err(|_| ReqHeadParsingError::Header(HeaderParsingError::InvalidMime))?,
         ))
     })
@@ -338,14 +340,14 @@ fn parse_header_value_mime(value: &AsciiStr) -> Result<HeaderValue, ReqHeadParsi
 
 /// Parse a header value that is made of a list of comma-separated values.
 fn parse_header_value<F>(
-    value: &AsciiStr,
+    value: &ascii::AsciiStr,
     main_value_parser: F,
 ) -> Result<HeaderValue, ReqHeadParsingError>
 where
-    F: Fn(&AsciiStr) -> Result<SimpleHeaderValue, ReqHeadParsingError>,
+    F: Fn(&ascii::AsciiStr) -> Result<SimpleHeaderValue, ReqHeadParsingError>,
 {
     let values = value
-        .split(AsciiChar::Comma)
+        .split(ascii::AsciiChar::Comma)
         .map(|l| l.trim())
         .collect::<Vec<_>>();
     if values.is_empty() {
@@ -363,27 +365,27 @@ where
 }
 /// Parse a value that is made of a string and a list of attributes, separated by a semicolon.
 fn parse_value_and_attr<F>(
-    value_str: &AsciiStr,
+    value_str: &ascii::AsciiStr,
     main_value_parser: F,
 ) -> Result<
     (
         SimpleHeaderValue,
-        BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+        collections::BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
     ),
     ReqHeadParsingError,
 >
 where
-    F: Fn(&AsciiStr) -> Result<SimpleHeaderValue, ReqHeadParsingError>,
+    F: Fn(&ascii::AsciiStr) -> Result<SimpleHeaderValue, ReqHeadParsingError>,
 {
     if value_str.chars().any(|c_| c_ == ';') {
-        let mut values_it = value_str.split(AsciiChar::Semicolon);
+        let mut values_it = value_str.split(ascii::AsciiChar::Semicolon);
         let main_value = values_it.next().unwrap();
-        let mut attributes = BTreeMap::new();
+        let mut attributes = collections::BTreeMap::new();
 
         for s in values_it {
-            let split = s.split(AsciiChar::Equal).collect::<Vec<_>>();
+            let split = s.split(ascii::AsciiChar::Equal).collect::<Vec<_>>();
             let (member_name, member_value) = match split.len() {
-                1 => (split[0], AsciiStr::from_ascii(&[]).unwrap()),
+                1 => (split[0], ascii::AsciiStr::from_ascii(&[]).unwrap()),
                 2 => (split[0], split[1]),
                 _ => return Err(ReqHeadParsingError::Header(HeaderParsingError::InvalidMime)),
             };
@@ -395,9 +397,9 @@ where
                 (b"q", _) => (
                     HeaderValueMemberName::Quality,
                     HeaderValueMemberValue::Float(
-                        NotNan::new(member_value.as_str().parse::<f32>().map_err(|_| {
-                            ReqHeadParsingError::Header(HeaderParsingError::InvalidFloat)
-                        })?)
+                        ordered_float::NotNan::new(member_value.as_str().parse::<f32>().map_err(
+                            |_| ReqHeadParsingError::Header(HeaderParsingError::InvalidFloat),
+                        )?)
                         .map_err(|_| {
                             ReqHeadParsingError::Header(HeaderParsingError::InvalidFloat)
                         })?,
@@ -413,6 +415,6 @@ where
         }
         Ok((main_value_parser(main_value)?, attributes))
     } else {
-        Ok((main_value_parser(value_str)?, BTreeMap::new()))
+        Ok((main_value_parser(value_str)?, collections::BTreeMap::new()))
     }
 }

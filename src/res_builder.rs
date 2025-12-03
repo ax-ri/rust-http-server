@@ -1,14 +1,9 @@
 use crate::http_header::{
     EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader, SimpleHeaderValue,
 };
-use crate::http_res;
-use crate::http_res::{HttpRes, ResBody};
-use mime_guess::{MimeGuess, mime};
-use std::cmp::Ordering;
-use std::fs;
-use std::path::Path;
-use std::str::FromStr;
-use tokio::fs::File;
+use crate::http_res::{self, HttpRes, ResBody};
+
+use std::{cmp, fs, path, str::FromStr};
 
 pub struct ResBuilder {
     res: HttpRes,
@@ -26,14 +21,14 @@ impl ResBuilder {
         self.res.set_header(
             ResHeader::EntityHeader(EntityHeader::ContentType),
             HeaderValue::Simple(SimpleHeaderValue::Mime(
-                mime::Mime::from_str("text/html; charset=utf-8").unwrap(),
+                mime_guess::Mime::from_str("text/html; charset=utf-8").unwrap(),
             )),
         );
     }
 
     pub fn list_directory(
         &mut self,
-        dir_path: &Path,
+        dir_path: &path::Path,
         rel_path: &str,
     ) -> Result<(), std::io::Error> {
         self.set_default_content_type();
@@ -57,8 +52,8 @@ impl ResBuilder {
 
         entries.sort_by(
             |(a_name, a_is_dir), (b_name, b_is_dir)| match (a_is_dir, b_is_dir) {
-                (true, false) => Ordering::Less,
-                (false, true) => Ordering::Greater,
+                (true, false) => cmp::Ordering::Less,
+                (false, true) => cmp::Ordering::Greater,
                 _ => a_name.cmp(b_name),
             },
         );
@@ -101,9 +96,9 @@ impl ResBuilder {
         Ok(())
     }
 
-    pub async fn set_file_body(&mut self, file_path: &Path) -> Result<(), std::io::Error> {
+    pub async fn set_file_body(&mut self, file_path: &path::Path) -> Result<(), std::io::Error> {
         // set content type
-        let mime_type = MimeGuess::from_path(file_path).first_or_octet_stream();
+        let mime_type = mime_guess::MimeGuess::from_path(file_path).first_or_octet_stream();
         self.res.set_header(
             ResHeader::EntityHeader(EntityHeader::ContentType),
             HeaderValue::Simple(SimpleHeaderValue::Mime(mime_type)),
@@ -112,7 +107,7 @@ impl ResBuilder {
         let metadata = fs::metadata(file_path)?;
         // set content
         if metadata.len() > 1024 * 1024 {
-            let file = File::open(file_path).await?;
+            let file = tokio::fs::File::open(file_path).await?;
             let len = file.metadata().await?.len();
             self.res.set_body(Some(ResBody::Stream(file, len)));
         } else {

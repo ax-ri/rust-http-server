@@ -26,7 +26,7 @@ below.
     - [x] Handling several concurrent connections
     - [ ] Support of usual [request headers](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers) (
       *accept* headers, CORS, web socket upgrade request etc.)
-    - [ ] TLS encryption support (HTTPS)
+    - [x] TLS encryption support (HTTPS)
 - [ ] Advanced (or optional) features
     - [ ] Dynamic content support
     - [ ] handling other HTTP methods (POST, PUT, PATCH, DELETE) and request body processing

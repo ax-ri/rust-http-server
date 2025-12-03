@@ -1,9 +1,8 @@
 //! Data structures for modeling an HTTP response.
 
-use crate::http_header::ResHeader;
-use crate::http_req::HeaderValue;
-use std::collections::HashMap;
-use tokio::fs::File;
+use crate::http_header::{HeaderValue, ResHeader};
+
+use std::collections;
 
 pub fn get_reason_phrase(status_code: u16) -> String {
     match status_code {
@@ -54,7 +53,7 @@ pub fn get_reason_phrase(status_code: u16) -> String {
 
 pub enum ResBody {
     Bytes(Vec<u8>),
-    Stream(File, u64),
+    Stream(tokio::fs::File, u64),
 }
 
 impl ResBody {
@@ -69,7 +68,7 @@ impl ResBody {
 pub struct HttpRes {
     version: String,
     status_code: u16,
-    headers: HashMap<ResHeader, HeaderValue>,
+    headers: collections::HashMap<ResHeader, HeaderValue>,
     body: Option<ResBody>,
 }
 
@@ -78,7 +77,7 @@ impl HttpRes {
         Self {
             version: String::from(version),
             status_code: 200,
-            headers: HashMap::new(),
+            headers: collections::HashMap::new(),
             body: None,
         }
     }
@@ -133,7 +132,7 @@ impl HttpRes {
         self.body = body;
     }
 
-    pub fn headers(&mut self) -> &mut HashMap<ResHeader, HeaderValue> {
+    pub fn headers(&mut self) -> &mut collections::HashMap<ResHeader, HeaderValue> {
         &mut self.headers
     }
 }

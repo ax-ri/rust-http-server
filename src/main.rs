@@ -1,3 +1,9 @@
+use crate::server::{Server, Settings};
+
+use std::{env, net, path};
+
+use log::{debug, info};
+
 mod http_header;
 mod http_req;
 mod http_res;
@@ -6,23 +12,15 @@ mod res_builder;
 mod server;
 mod utils;
 
-use crate::server::Settings;
-use argparse_rs::{ArgParser, ArgType};
-use log::{debug, info};
-use server::Server;
-use std::env;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-
 fn parse_args() -> Result<Settings, String> {
-    let mut arg_parser = ArgParser::new(String::from("rust-http-server"));
+    let mut arg_parser = argparse_rs::ArgParser::new(String::from("rust-http-server"));
     arg_parser.add_opt(
         "address",
         None,
         'a',
         true,
         "Socket address",
-        ArgType::Option,
+        argparse_rs::ArgType::Option,
     );
     arg_parser.add_opt(
         "doc-root",
@@ -30,7 +28,7 @@ fn parse_args() -> Result<Settings, String> {
         'r',
         true,
         "Directory root to serve resources from",
-        ArgType::Option,
+        argparse_rs::ArgType::Option,
     );
     arg_parser.add_opt(
         "dir-listing",
@@ -38,7 +36,7 @@ fn parse_args() -> Result<Settings, String> {
         'd',
         false,
         "Allow directory listing",
-        ArgType::Flag,
+        argparse_rs::ArgType::Flag,
     );
     arg_parser.add_opt(
         "ssl-cert",
@@ -46,7 +44,7 @@ fn parse_args() -> Result<Settings, String> {
         'c',
         false,
         "SSL certificate for HTTPS",
-        ArgType::Option,
+        argparse_rs::ArgType::Option,
     );
     arg_parser.add_opt(
         "ssl-key",
@@ -54,22 +52,22 @@ fn parse_args() -> Result<Settings, String> {
         'k',
         false,
         "SSL key for HTTPS",
-        ArgType::Option,
+        argparse_rs::ArgType::Option,
     );
     let args = arg_parser.parse(env::args().collect::<Vec<String>>().iter())?;
 
     Ok(Settings {
         address: args
-            .get::<SocketAddr>("address")
+            .get::<net::SocketAddr>("address")
             .ok_or("invalid socket address")?,
         document_root: args
-            .get::<PathBuf>("doc-root")
+            .get::<path::PathBuf>("doc-root")
             .ok_or("invalid document root")?,
         allow_dir_listing: args
             .get::<bool>("dir-listing")
             .ok_or("invalid value for directory listing")?,
-        ssl_cert_path: args.get::<PathBuf>("ssl-cert"),
-        ssl_key_path: args.get::<PathBuf>("ssl-key"),
+        ssl_cert_path: args.get::<path::PathBuf>("ssl-cert"),
+        ssl_key_path: args.get::<path::PathBuf>("ssl-key"),
     })
 }
 
