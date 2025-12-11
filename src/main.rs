@@ -1,9 +1,12 @@
+#![feature(coverage_attribute)]
+
 use rust_http_server::server::{Server, Settings};
 
 use std::{env, net, path};
 
 use log::{debug, info};
 
+#[cfg_attr(coverage, coverage(off))]
 fn parse_args() -> Result<Settings, String> {
     let mut arg_parser = argparse_rs::ArgParser::new(String::from("rust-http-server"));
     arg_parser.add_opt(
@@ -54,7 +57,9 @@ fn parse_args() -> Result<Settings, String> {
             .ok_or("invalid socket address")?,
         document_root: args
             .get::<path::PathBuf>("doc-root")
-            .ok_or("invalid document root")?,
+            .ok_or("invalid doc-root")?
+            .canonicalize()
+            .map_err(|_| "cannot canonicalize doc-root")?,
         allow_dir_listing: args
             .get::<bool>("dir-listing")
             .ok_or("invalid value for directory listing")?,
@@ -64,6 +69,7 @@ fn parse_args() -> Result<Settings, String> {
 }
 
 #[tokio::main]
+#[cfg_attr(coverage, coverage(off))]
 async fn main() -> Result<(), String> {
     // set default log level to info
     if env::var("RUST_LOG").is_err() {

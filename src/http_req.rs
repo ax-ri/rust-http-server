@@ -12,7 +12,7 @@ pub enum ReqVerb {
 }
 
 impl fmt::Display for ReqVerb {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqVerb::Get => f.write_str("GET"),

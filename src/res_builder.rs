@@ -68,7 +68,7 @@ impl ResBuilder {
                 <body> \
                     <h1>{}</h1> \
                     <hr/> \
-                    <ul>{}</ul> \
+                        <ul>{}</ul> \
                     <hr/> \
                 </body> \
              </html> \
@@ -80,13 +80,13 @@ impl ResBuilder {
                 .map(|(file_name, is_dir)| {
                     let sep = if rel_path == "/" { "" } else { "/" };
                     format!(
-                        r##"<li><a href="{}">{}{}</a></li>"##,
+                        r##"<li><pre><a href="{}">{}{}</a></pre></li>"##,
                         rel_path.trim_end_matches("/").to_owned() + sep + file_name,
                         file_name,
                         if *is_dir { "/" } else { "" },
                     )
                 })
-                .fold(String::new(), |acc, e| format!("<pre>{}{}</pre>", acc, e)),
+                .fold(String::new(), |acc, e| format!("{}{}", acc, e)),
         );
 
         // set content
@@ -183,7 +183,7 @@ impl ResBuilder {
 
         // set content-length
         if let Some(body) = self.res.body_ref()
-            && body.len() > 0
+            && !body.is_empty()
         {
             self.res.set_header(
                 ResHeader::EntityHeader(EntityHeader::ContentLength),

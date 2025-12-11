@@ -1,3 +1,7 @@
+//! Http server source file.
+//!
+//! Set up a TCP socket and serve incoming requests.
+
 use crate::http_header::{
     EntityHeader, HeaderValue, ReqHeader, ReqOnlyHeader, ResHeader, SimpleHeaderValue,
 };
@@ -13,6 +17,7 @@ use log::{debug, error, info, warn};
 use rustls::pki_types::pem::PemObject;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
+/// Server settings, typically populated from CLI or configuration file.
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub address: net::SocketAddr,
@@ -34,6 +39,8 @@ pub enum Error {
     TlsPem(rustls::pki_types::pem::Error),
 }
 
+/// This error is meant to be displayed to the user in case of server failure, hence the Display trait.
+#[cfg_attr(coverage, coverage(off))]
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -45,6 +52,10 @@ impl fmt::Display for Error {
 }
 
 impl Server {
+    /// Create a new server instance, based on the provided settings.
+    ///
+    /// This function will attempt to bind a socket to the provided socket address, and may fail if
+    /// the socket cannot be bound.
     pub async fn new(settings: Settings) -> Result<Self, Error> {
         let listener = tokio::net::TcpListener::bind(settings.address)
             .await
@@ -76,6 +87,7 @@ impl Server {
         }
     }
 
+    /// Start the server, i.e. make it listening for requests on the socket.
     pub async fn listen(&mut self) {
         // accept connections and process them concurrently
         loop {
@@ -111,10 +123,12 @@ impl Server {
     }
 }
 
+/// Define a wrapper trait for a TCP stream
 trait AsyncStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin {}
 impl AsyncStream for tokio::net::TcpStream {}
 impl AsyncStream for tokio_rustls::server::TlsStream<tokio::net::TcpStream> {}
 
+/// A client handler is responsible for handling a HTTP connection, once received by the server.
 struct ClientHandler<S: AsyncStream> {
     settings: Settings,
     stream: S,
@@ -123,6 +137,7 @@ struct ClientHandler<S: AsyncStream> {
 }
 
 impl<S: AsyncStream> ClientHandler<S> {
+    /// Create a new client handler, from an established stream of communication.
     fn new(settings: Settings, peer_addr: String, stream: S) -> Self {
         Self {
             settings,
@@ -132,6 +147,7 @@ impl<S: AsyncStream> ClientHandler<S> {
         }
     }
 
+    /// Handle the HTTP requests made by a client, and answers with HTTP responses.
     async fn handle(&mut self) {
         info!("Connection received from: {}", self.peer_addr);
 
@@ -250,10 +266,17 @@ impl<S: AsyncStream> ClientHandler<S> {
             ReqTarget::All => self.serve_error(400, true).await,
             // serve target from path
             ReqTarget::Path(path, _) => {
-                // convert target resource path to ile system path
+                // convert target resource path to file system path
                 let mut full_path = String::from(self.settings.document_root.to_str().unwrap());
                 full_path.push_str(path);
-                let full_path = path::Path::new(&full_path);
+
+                // canonicalize to resolve '..' and others
+                let full_path = path::Path::new(&full_path).canonicalize();
+                if full_path.is_err() {
+                    self.serve_error(404, true).await;
+                    return;
+                }
+                let full_path = full_path.unwrap();
 
                 // prevent path traversal: the resource path must be a sub-path of the doc root
                 if !full_path.starts_with(self.settings.document_root.as_path()) {
@@ -264,7 +287,7 @@ impl<S: AsyncStream> ClientHandler<S> {
                 // prevent directory listing by default
                 if full_path.is_dir() {
                     if self.settings.allow_dir_listing {
-                        match res_builder.list_directory(full_path, path) {
+                        match res_builder.list_directory(full_path.as_path(), path) {
                             Ok(()) => {
                                 let res = res_builder.do_build();
                                 self.send_response(res).await
@@ -280,7 +303,7 @@ impl<S: AsyncStream> ClientHandler<S> {
                     return;
                 }
 
-                match res_builder.set_file_body(full_path).await {
+                match res_builder.set_file_body(full_path.as_path()).await {
                     Ok(()) => {
                         let res = res_builder.do_build();
                         self.send_response(res).await

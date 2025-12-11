@@ -1047,7 +1047,6 @@ dependencies = [
  "ascii",
  "chrono",
  "env_logger",
- "httparse",
  "log",
  "mime_guess",
  "ordered-float",

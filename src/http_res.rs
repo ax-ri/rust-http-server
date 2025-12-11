@@ -5,7 +5,7 @@ use crate::http_header::{HeaderValue, ResHeader};
 use std::collections;
 
 #[inline(always)]
-#[cfg_attr(coverage_nightly, coverage(off))]
+#[cfg_attr(coverage, coverage(off))]
 pub fn get_reason_phrase(status_code: u16) -> String {
     match status_code {
         100 => String::from("Continue"),

@@ -18,8 +18,7 @@ tokio-rustls = "0.26.4"
 anyhow = "1.0.100"
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
 [dev-dependencies]
-httparse = "1.10.1"
 reqwest = "0.12.25"

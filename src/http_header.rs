@@ -17,7 +17,7 @@ pub enum GeneralHeader {
 }
 
 impl fmt::Display for GeneralHeader {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             GeneralHeader::CacheControl => write!(f, "Cache-Control"),
@@ -47,7 +47,7 @@ impl HeaderValueMemberName {
 }
 
 impl fmt::Display for HeaderValueMemberName {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Quality => write!(f, "q"),
@@ -75,7 +75,7 @@ impl HeaderValueMemberValue {
 }
 
 impl fmt::Display for HeaderValueMemberValue {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Float(x) => write!(f, "{}", x),
@@ -92,7 +92,7 @@ pub enum SimpleHeaderValue {
 }
 
 impl fmt::Display for SimpleHeaderValue {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{}", n),
@@ -142,7 +142,7 @@ pub enum HeaderValue {
 }
 
 impl fmt::Display for HeaderValue {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Simple(s) => write!(f, "{}", s),
@@ -175,7 +175,7 @@ pub enum ReqOnlyHeader {
 }
 
 impl fmt::Display for ReqOnlyHeader {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqOnlyHeader::Accept => write!(f, "Accept"),
@@ -216,7 +216,7 @@ pub enum ResOnlyHeader {
 }
 
 impl fmt::Display for ResOnlyHeader {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ResOnlyHeader::AcceptRanges => write!(f, "Accept-Ranges"),
@@ -248,7 +248,7 @@ pub enum EntityHeader {
 }
 
 impl fmt::Display for EntityHeader {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EntityHeader::Allow => write!(f, "Allow"),
@@ -273,7 +273,7 @@ pub enum ReqHeader {
 }
 
 impl fmt::Display for ReqHeader {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqHeader::GeneralHeader(h) => write!(f, "{}", h),
@@ -293,7 +293,7 @@ pub enum ResHeader {
 }
 
 impl fmt::Display for ResHeader {
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ResHeader::GeneralHeader(h) => write!(f, "{}", h),

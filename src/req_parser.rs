@@ -212,114 +212,68 @@ fn parse_header(
     name: &ascii::AsciiStr,
     value: &ascii::AsciiStr,
 ) -> Result<(ReqHeader, HeaderValue), ReqHeadParsingError> {
+    // define some macros to make the match shorter
+
+    // general header with simple plain value
+    macro_rules! general_simple_plain {
+        ($variant: expr, $v: ident) => {
+            Ok((
+                ReqHeader::GeneralHeader($variant),
+                HeaderValue::Simple(SimpleHeaderValue::Plain($v.to_string())),
+            ))
+        };
+    }
+
+    // request-only header with simple plain value
+    macro_rules! req_only_simple_plain {
+        ($variant: expr, $v: ident) => {
+            Ok((
+                ReqHeader::ReqOnly($variant),
+                HeaderValue::Simple(SimpleHeaderValue::Plain($v.to_string())),
+            ))
+        };
+    }
+
+    // request-only header with value parsed as plain
+    macro_rules! req_only_parsed_plain {
+        ($variant: expr, $v: ident) => {
+            parse_header_value_plain($v).map(|v| (ReqHeader::ReqOnly($variant), v))
+        };
+    }
+
     match (name.as_bytes(), value) {
         // general headers
-        (b"cache-control", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::CacheControl),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"connection", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::Connection),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"date", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::Date),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"pragma", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::Pragma),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"trailer", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::Trailer),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"transfer-encoding", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::TransferEncoding),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"upgrade", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::Upgrade),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"via", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::Via),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"warning", v) => Ok((
-            ReqHeader::GeneralHeader(GeneralHeader::Warning),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
+        (b"cache-control", v) => general_simple_plain!(GeneralHeader::CacheControl, v),
+        (b"connection", v) => general_simple_plain!(GeneralHeader::Connection, v),
+        (b"date", v) => general_simple_plain!(GeneralHeader::Pragma, v),
+        (b"trailer", v) => general_simple_plain!(GeneralHeader::Trailer, v),
+        (b"transfer-encoding", v) => general_simple_plain!(GeneralHeader::TransferEncoding, v),
+        (b"upgrade", v) => general_simple_plain!(GeneralHeader::Upgrade, v),
+        (b"via", v) => general_simple_plain!(GeneralHeader::Via, v),
+        (b"warning", v) => general_simple_plain!(GeneralHeader::Warning, v),
         // req only headers
         (b"accept", v) => {
             parse_header_value_mime(v).map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Accept), v))
         }
-        (b"accept-charset", v) => parse_header_value_plain(v)
-            .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptCharset), v)),
-        (b"accept-encoding", value) => parse_header_value_plain(value)
-            .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptEncoding), v)),
-        (b"accept-language", value) => parse_header_value_plain(value)
-            .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::AcceptLanguage), v)),
-        (b"authorization", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::Authorization),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"expect", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::Expect),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"from", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::From),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"host", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::Host),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"if-match", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::IfMatch),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"if-modified-since", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::IfModifiedSince),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"if-none-match", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::IfNoneMatch),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"if-range", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::IfRange),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"if-unmodified-since", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::IfUnmodifiedSince),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"max-forwards", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::MaxForwards),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"proxy-authorization", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::ProxyAuthorization),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"range", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::Range),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"referer", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::Referer),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"te", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::TE),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
-        (b"user-agent", v) => Ok((
-            ReqHeader::ReqOnly(ReqOnlyHeader::UserAgent),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(v.to_string())),
-        )),
+        (b"accept-charset", v) => req_only_parsed_plain!(ReqOnlyHeader::AcceptCharset, v),
+        (b"accept-encoding", v) => req_only_parsed_plain!(ReqOnlyHeader::AcceptEncoding, v),
+        (b"accept-language", v) => req_only_parsed_plain!(ReqOnlyHeader::AcceptLanguage, v),
+        (b"authorization", v) => req_only_simple_plain!(ReqOnlyHeader::Authorization, v),
+        (b"expect", v) => req_only_simple_plain!(ReqOnlyHeader::Expect, v),
+        (b"from", v) => req_only_simple_plain!(ReqOnlyHeader::From, v),
+        (b"host", v) => req_only_simple_plain!(ReqOnlyHeader::Host, v),
+        (b"if-match", v) => req_only_simple_plain!(ReqOnlyHeader::IfMatch, v),
+        (b"if-modified-since", v) => req_only_simple_plain!(ReqOnlyHeader::IfModifiedSince, v),
+        (b"if-none-match", v) => req_only_simple_plain!(ReqOnlyHeader::IfNoneMatch, v),
+        (b"if-range", v) => req_only_simple_plain!(ReqOnlyHeader::IfRange, v),
+        (b"if-unmodified-since", v) => req_only_simple_plain!(ReqOnlyHeader::IfUnmodifiedSince, v),
+        (b"max-forwards", v) => req_only_simple_plain!(ReqOnlyHeader::MaxForwards, v),
+        (b"proxy-authorization", v) => req_only_simple_plain!(ReqOnlyHeader::ProxyAuthorization, v),
+        (b"range", v) => req_only_simple_plain!(ReqOnlyHeader::Range, v),
+        (b"referer", v) => req_only_simple_plain!(ReqOnlyHeader::Referer, v),
+        (b"te", v) => req_only_simple_plain!(ReqOnlyHeader::TE, v),
+        (b"user-agent", v) => req_only_simple_plain!(ReqOnlyHeader::UserAgent, v),
+        // other
         (name, v) => Ok((
             ReqHeader::Other(
                 ascii::AsciiString::from_ascii(name)
