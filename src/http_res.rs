@@ -4,6 +4,8 @@ use crate::http_header::{HeaderValue, ResHeader};
 
 use std::collections;
 
+#[inline(always)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 pub fn get_reason_phrase(status_code: u16) -> String {
     match status_code {
         100 => String::from("Continue"),
@@ -63,6 +65,13 @@ impl ResBody {
             Self::Stream(_, len) => *len as usize,
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::Bytes(bytes) => bytes.is_empty(),
+            Self::Stream(_, len) => *len == 0,
+        }
+    }
 }
 
 pub struct HttpRes {
@@ -90,12 +99,12 @@ impl HttpRes {
         self.status_code = status_code
     }
 
-    pub fn set_header(&mut self, name: ResHeader, value: HeaderValue) {
-        self.headers.insert(name, value);
-    }
-
     pub fn has_header(&mut self, name: ResHeader) -> bool {
         self.headers.contains_key(&name)
+    }
+
+    pub fn set_header(&mut self, name: ResHeader, value: HeaderValue) {
+        self.headers.insert(name, value);
     }
 
     pub fn head_bytes(&self) -> Vec<u8> {
@@ -134,5 +143,72 @@ impl HttpRes {
 
     pub fn headers(&mut self) -> &mut collections::HashMap<ResHeader, HeaderValue> {
         &mut self.headers
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http_header::{GeneralHeader, ResOnlyHeader, SimpleHeaderValue};
+
+    #[test]
+    fn http_res_test() {
+        let mut res = HttpRes::new("HTTP/1.1");
+        res.set_status(200);
+        res.set_header(
+            ResHeader::GeneralHeader(GeneralHeader::Connection),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive"))),
+        );
+        res.set_header(
+            ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
+        );
+
+        assert_eq!(res.status_code(), 200);
+        assert!(res.has_header(ResHeader::GeneralHeader(GeneralHeader::Connection)));
+        assert!(res.has_header(ResHeader::ResOnlyHeader(ResOnlyHeader::Server)));
+        assert_eq!(
+            res.headers,
+            collections::HashMap::from([
+                (
+                    ResHeader::GeneralHeader(GeneralHeader::Connection),
+                    HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive")))
+                ),
+                (
+                    ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
+                    HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
+                )
+            ])
+        );
+
+        let bytes = res.head_bytes();
+        assert!(bytes.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        assert!(
+            b"Connection: keep-alive\r\n"
+                .iter()
+                .all(|b| bytes.contains(b))
+        );
+        assert!(
+            b"Server: rust-http-server\r\n"
+                .iter()
+                .all(|b| bytes.contains(b))
+        );
+    }
+
+    #[test]
+    fn http_res_body_test() {
+        let mut res = HttpRes::new("HTTP/1.1");
+        assert_eq!(res.body_len(), 0);
+        assert!(res.body_ref().is_none());
+        assert!(res.body_mut().is_none());
+
+        res.set_body(Some(ResBody::Bytes(vec![0, 1, 2, 3, 4])));
+        assert_eq!(res.body_len(), 5);
+        assert!(res.body_ref().is_some());
+        assert!(res.body_mut().is_some());
+        assert_eq!(res.body_ref().unwrap().len(), 5);
+        assert_eq!(res.body_mut().unwrap().len(), 5);
+        assert!(!res.body_ref().unwrap().is_empty());
+        assert!(!res.body_mut().unwrap().is_empty());
     }
 }

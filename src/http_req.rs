@@ -6,12 +6,13 @@ use std::{collections, fmt};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReqVerb {
     Get,
 }
 
 impl fmt::Display for ReqVerb {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqVerb::Get => f.write_str("GET"),
@@ -19,7 +20,7 @@ impl fmt::Display for ReqVerb {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReqTarget {
     All,
     // path (url-decoded, original)
@@ -58,6 +59,10 @@ impl ReqHead {
         }
     }
 
+    pub fn first_line(&self) -> String {
+        format!("{} {} {}", self.verb, self.target, self.version)
+    }
+
     pub fn should_close(&self) -> bool {
         self.headers
             .get(&ReqHeader::GeneralHeader(GeneralHeader::Connection))
@@ -70,12 +75,7 @@ impl ReqHead {
 
 impl fmt::Display for ReqHead {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} {:?} HTTP/{}\r\n",
-            self.verb, self.target, self.version
-        )
-        .and(
+        write!(f, "{}\r\n", self.first_line()).and(
             self.headers
                 .iter()
                 .try_for_each(|(name, value)| write!(f, "{}: {}\r\n", name, value)),
@@ -112,10 +112,7 @@ impl HttpReq {
     }
 
     pub fn first_line(&self) -> String {
-        format!(
-            "{} {} {}",
-            self.head.verb, self.head.target, self.head.version
-        )
+        self.head.first_line()
     }
 
     pub fn should_close(&self) -> bool {
@@ -124,5 +121,119 @@ impl HttpReq {
 
     pub fn headers(&mut self) -> &mut collections::HashMap<ReqHeader, HeaderValue> {
         &mut self.head.headers
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http_header::ReqOnlyHeader;
+
+    #[test]
+    fn http_req_head_path_test() {
+        let paths = vec!["/", "/file.html", "/dir/file.html"];
+        for path in paths {
+            let req_head = ReqHead::new(
+                ReqVerb::Get,
+                ReqTarget::Path(String::from(path), String::from(path)),
+                String::from("HTTP/1.1"),
+                collections::HashMap::new(),
+            );
+            assert_eq!(
+                format!("{}", req_head),
+                format!("GET {} HTTP/1.1\r\n", path.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn http_req_simple_test() {
+        let now = chrono::Utc::now();
+        let req_head = ReqHead::new(
+            ReqVerb::Get,
+            ReqTarget::All,
+            String::from("HTTP/1.1"),
+            collections::HashMap::from([(
+                ReqHeader::ReqOnly(ReqOnlyHeader::Host),
+                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("foo"))),
+            )]),
+        );
+        let mut req = HttpReq::new(now, req_head);
+
+        assert_eq!(*req.date(), now);
+        assert_eq!(req.version(), "HTTP/1.1");
+        assert_eq!(*req.verb(), ReqVerb::Get);
+        assert_eq!(*req.target(), ReqTarget::All);
+
+        assert_eq!(req.first_line(), "GET * HTTP/1.1");
+        assert!(!req.should_close());
+        assert_eq!(
+            req.headers(),
+            &mut collections::HashMap::from([(
+                ReqHeader::ReqOnly(ReqOnlyHeader::Host),
+                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("foo"))),
+            )])
+        );
+    }
+
+    #[test]
+    fn http_req_should_close_test() {
+        let req_head = ReqHead::new(
+            ReqVerb::Get,
+            ReqTarget::All,
+            String::from("HTTP/1.1"),
+            collections::HashMap::new(),
+        );
+        let mut req = HttpReq::new(chrono::Utc::now(), req_head);
+
+        req.headers().insert(
+            ReqHeader::GeneralHeader(GeneralHeader::Connection),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("close"))),
+        );
+
+        assert!(req.should_close());
+
+        req.headers().insert(
+            ReqHeader::GeneralHeader(GeneralHeader::Connection),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive"))),
+        );
+        assert!(!req.should_close());
+    }
+
+    #[test]
+    fn http_req_headers_test() {
+        let mut headers = collections::HashMap::new();
+        headers.insert(
+            ReqHeader::GeneralHeader(GeneralHeader::Connection),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("close"))),
+        );
+        headers.insert(
+            ReqHeader::ReqOnly(ReqOnlyHeader::Host),
+            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
+        );
+        headers.insert(
+            ReqHeader::ReqOnly(ReqOnlyHeader::Accept),
+            HeaderValue::Simple(SimpleHeaderValue::Mime(
+                mime_guess::mime::APPLICATION_OCTET_STREAM,
+            )),
+        );
+        headers.insert(
+            ReqHeader::Other(String::from("X-My-Header")),
+            HeaderValue::Simple(SimpleHeaderValue::Number(1234)),
+        );
+
+        let req_head = ReqHead::new(
+            ReqVerb::Get,
+            ReqTarget::All,
+            String::from("HTTP/1.1"),
+            headers,
+        );
+        let fmt = format!("{}", req_head);
+        assert!(fmt.starts_with("GET * HTTP/1.1\r\n"));
+        // the header order is non-deterministic (hashmap.iter())
+        assert!(fmt.contains("X-My-Header: 1234\r\n"));
+        assert!(fmt.contains("Connection: close\r\n"));
+        assert!(fmt.contains("Accept: application/octet-stream\r\n"));
+        assert!(fmt.contains("Host: rust-http-server\r\n"));
     }
 }

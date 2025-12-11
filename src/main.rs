@@ -1,16 +1,8 @@
-use crate::server::{Server, Settings};
+use rust_http_server::server::{Server, Settings};
 
 use std::{env, net, path};
 
 use log::{debug, info};
-
-mod http_header;
-mod http_req;
-mod http_res;
-mod req_parser;
-mod res_builder;
-mod server;
-mod utils;
 
 fn parse_args() -> Result<Settings, String> {
     let mut arg_parser = argparse_rs::ArgParser::new(String::from("rust-http-server"));

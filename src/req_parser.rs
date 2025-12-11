@@ -33,7 +33,7 @@ enum ReqHeadParserState {
     Done,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FirstLineParsingError {
     EmptyLine,
     InvalidFieldCount,
@@ -41,7 +41,7 @@ pub enum FirstLineParsingError {
     InvalidTargetEncoding,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum HeaderParsingError {
     NoColon,
     SpaceBeforeColon,
@@ -50,7 +50,7 @@ pub enum HeaderParsingError {
     InvalidFloat,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReqHeadParsingError {
     Ascii(ascii::AsAsciiStrError),
     FirstLine(FirstLineParsingError),
@@ -61,6 +61,12 @@ pub struct ReqHeadParser {
     state: ReqHeadParserState,
     raw_req_head: RawReqHead,
     parsed_req_head: Option<ReqHead>,
+}
+
+impl Default for ReqHeadParser {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReqHeadParser {
@@ -325,10 +331,12 @@ fn parse_header(
     }
 }
 
+/// Wrapper function to parse a header value that is a plain string.
 fn parse_header_value_plain(value: &ascii::AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
     parse_header_value(value, |v| Ok(SimpleHeaderValue::Plain(v.to_string())))
 }
 
+/// Wrapper function to parse a header value that is a mime-type.
 fn parse_header_value_mime(value: &ascii::AsciiStr) -> Result<HeaderValue, ReqHeadParsingError> {
     parse_header_value(value, |v| {
         Ok(SimpleHeaderValue::Mime(
@@ -363,6 +371,7 @@ where
         _ => Ok(HeaderValue::Parsed(ParsedHeaderValue(parsed_values))),
     }
 }
+
 /// Parse a value that is made of a string and a list of attributes, separated by a semicolon.
 fn parse_value_and_attr<F>(
     value_str: &ascii::AsciiStr,
@@ -417,4 +426,190 @@ where
     } else {
         Ok((main_value_parser(value_str)?, collections::BTreeMap::new()))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ascii(s: &str) -> &ascii::AsciiStr {
+        ascii::AsciiStr::from_ascii(s).unwrap()
+    }
+
+    #[test]
+    fn parse_first_line_test() {
+        assert_eq!(
+            parse_first_line(ascii("GET / HTTP/1.1")),
+            Ok((
+                ReqVerb::Get,
+                ReqTarget::Path(String::from("/"), String::from("/")),
+                String::from("HTTP/1.1")
+            ))
+        );
+
+        assert_eq!(
+            parse_first_line(ascii("GET /dir/page.html HTTP/2.0")),
+            Ok((
+                ReqVerb::Get,
+                ReqTarget::Path(
+                    String::from("/dir/page.html"),
+                    String::from("/dir/page.html")
+                ),
+                String::from("HTTP/2.0")
+            ))
+        );
+
+        assert_eq!(
+            parse_first_line(ascii(
+                "GET %2Fr%C3%A9pertoire%20sp%C3%A9cial%2Ffichier%20%C3%A0%20tester HTTP/1.1"
+            )),
+            Ok((
+                ReqVerb::Get,
+                ReqTarget::Path(
+                    String::from("/répertoire spécial/fichier à tester"),
+                    String::from("%2Fr%C3%A9pertoire%20sp%C3%A9cial%2Ffichier%20%C3%A0%20tester")
+                ),
+                String::from("HTTP/1.1")
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_header_test() {}
+
+    #[test]
+    fn parse_header_value_test() {
+        assert_eq!(
+            parse_header_value_plain(ascii("keep-alive")),
+            Ok(HeaderValue::Parsed(ParsedHeaderValue(vec![(
+                SimpleHeaderValue::Plain(String::from("keep-alive")),
+                collections::BTreeMap::new()
+            )])))
+        );
+
+        assert_eq!(
+            parse_header_value_plain(ascii(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+            )),
+            Ok(HeaderValue::Parsed(ParsedHeaderValue(vec![
+                (
+                    SimpleHeaderValue::Plain(String::from("text/html")),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Plain(String::from("application/xhtml+xml")),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Plain(String::from("application/xml")),
+                    collections::BTreeMap::from([(
+                        HeaderValueMemberName::Quality,
+                        HeaderValueMemberValue::new_float(0.9)
+                    )])
+                ),
+                (
+                    SimpleHeaderValue::Plain(String::from("image/avif")),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Plain(String::from("image/webp")),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Plain(String::from("image/apng")),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Plain(String::from("*/*")),
+                    collections::BTreeMap::from([(
+                        HeaderValueMemberName::Quality,
+                        HeaderValueMemberValue::new_float(0.8)
+                    )])
+                ),
+                (
+                    SimpleHeaderValue::Plain(String::from("application/signed-exchange")),
+                    collections::BTreeMap::from([
+                        (
+                            HeaderValueMemberName::new_other("v"),
+                            HeaderValueMemberValue::new_other("b3")
+                        ),
+                        (
+                            HeaderValueMemberName::Quality,
+                            HeaderValueMemberValue::new_float(0.7)
+                        )
+                    ])
+                )
+            ])))
+        );
+
+        assert_eq!(
+            parse_header_value_mime(ascii(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+            )),
+            Ok(HeaderValue::Parsed(ParsedHeaderValue(vec![
+                (
+                    SimpleHeaderValue::Mime(mime_guess::mime::TEXT_HTML),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Mime(
+                        mime_guess::mime::Mime::from_str("application/xhtml+xml").unwrap()
+                    ),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Mime(
+                        mime_guess::mime::Mime::from_str("application/xml").unwrap()
+                    ),
+                    collections::BTreeMap::from([(
+                        HeaderValueMemberName::Quality,
+                        HeaderValueMemberValue::new_float(0.9)
+                    )])
+                ),
+                (
+                    SimpleHeaderValue::Mime(
+                        mime_guess::mime::Mime::from_str("image/avif").unwrap()
+                    ),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Mime(
+                        mime_guess::mime::Mime::from_str("image/webp").unwrap()
+                    ),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Mime(
+                        mime_guess::mime::Mime::from_str("image/apng").unwrap()
+                    ),
+                    collections::BTreeMap::new()
+                ),
+                (
+                    SimpleHeaderValue::Mime(mime_guess::mime::STAR_STAR),
+                    collections::BTreeMap::from([(
+                        HeaderValueMemberName::Quality,
+                        HeaderValueMemberValue::new_float(0.8)
+                    )])
+                ),
+                (
+                    SimpleHeaderValue::Mime(
+                        mime_guess::mime::Mime::from_str("application/signed-exchange").unwrap()
+                    ),
+                    collections::BTreeMap::from([
+                        (
+                            HeaderValueMemberName::new_other("v"),
+                            HeaderValueMemberValue::new_other("b3")
+                        ),
+                        (
+                            HeaderValueMemberName::Quality,
+                            HeaderValueMemberValue::new_float(0.7)
+                        )
+                    ])
+                )
+            ])))
+        );
+    }
+
+    #[test]
+    fn parse_value_and_attr_test() {}
 }

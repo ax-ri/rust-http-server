@@ -1,5 +1,5 @@
 //! Data structures for modeling HTTP headers.
-
+//!
 use std::{collections, fmt};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -17,6 +17,7 @@ pub enum GeneralHeader {
 }
 
 impl fmt::Display for GeneralHeader {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             GeneralHeader::CacheControl => write!(f, "Cache-Control"),
@@ -38,7 +39,15 @@ pub enum HeaderValueMemberName {
     Other(String),
 }
 
+impl HeaderValueMemberName {
+    #[inline(always)]
+    pub fn new_other(name: &str) -> Self {
+        Self::Other(String::from(name))
+    }
+}
+
 impl fmt::Display for HeaderValueMemberName {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Quality => write!(f, "q"),
@@ -53,7 +62,20 @@ pub enum HeaderValueMemberValue {
     Other(String),
 }
 
+impl HeaderValueMemberValue {
+    #[inline(always)]
+    pub fn new_float(f: f32) -> Self {
+        Self::Float(ordered_float::NotNan::new(f).unwrap())
+    }
+
+    #[inline(always)]
+    pub fn new_other(name: &str) -> Self {
+        Self::Other(String::from(name))
+    }
+}
+
 impl fmt::Display for HeaderValueMemberValue {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Float(x) => write!(f, "{}", x),
@@ -70,6 +92,7 @@ pub enum SimpleHeaderValue {
 }
 
 impl fmt::Display for SimpleHeaderValue {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Number(n) => write!(f, "{}", n),
@@ -96,8 +119,9 @@ impl fmt::Display for ParsedHeaderValue {
                 .iter()
                 .map(|(name, members)| {
                     format!(
-                        "{};{}",
+                        "{}{}{}",
                         name,
+                        if members.is_empty() { "" } else { ";" },
                         members
                             .iter()
                             .map(|(name, value)| format!("{}={}", name, value))
@@ -118,6 +142,7 @@ pub enum HeaderValue {
 }
 
 impl fmt::Display for HeaderValue {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Simple(s) => write!(f, "{}", s),
@@ -150,6 +175,7 @@ pub enum ReqOnlyHeader {
 }
 
 impl fmt::Display for ReqOnlyHeader {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqOnlyHeader::Accept => write!(f, "Accept"),
@@ -190,6 +216,7 @@ pub enum ResOnlyHeader {
 }
 
 impl fmt::Display for ResOnlyHeader {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ResOnlyHeader::AcceptRanges => write!(f, "Accept-Ranges"),
@@ -221,6 +248,7 @@ pub enum EntityHeader {
 }
 
 impl fmt::Display for EntityHeader {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EntityHeader::Allow => write!(f, "Allow"),
@@ -245,6 +273,7 @@ pub enum ReqHeader {
 }
 
 impl fmt::Display for ReqHeader {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqHeader::GeneralHeader(h) => write!(f, "{}", h),
@@ -264,6 +293,7 @@ pub enum ResHeader {
 }
 
 impl fmt::Display for ResHeader {
+    #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ResHeader::GeneralHeader(h) => write!(f, "{}", h),
@@ -271,5 +301,50 @@ impl fmt::Display for ResHeader {
             ResHeader::EntityHeader(h) => write!(f, "{}", h),
             ResHeader::Other(name) => write!(f, "{}", name),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_parsed_header_value_test() {
+        let mut h = ParsedHeaderValue(vec![(
+            SimpleHeaderValue::Plain(String::from("my header value")),
+            collections::BTreeMap::new(),
+        )]);
+        assert_eq!(format!("{}", h), "my header value");
+
+        h = ParsedHeaderValue(vec![(
+            SimpleHeaderValue::Number(68),
+            collections::BTreeMap::from([(
+                HeaderValueMemberName::Quality,
+                HeaderValueMemberValue::new_float(0.32),
+            )]),
+        )]);
+        assert_eq!(format!("{}", h), "68;q=0.32");
+
+        h = ParsedHeaderValue(vec![(
+            SimpleHeaderValue::Mime(mime_guess::mime::TEXT_HTML),
+            collections::BTreeMap::from([
+                (
+                    HeaderValueMemberName::Quality,
+                    HeaderValueMemberValue::new_float(0.32),
+                ),
+                (
+                    HeaderValueMemberName::Other(String::from("my-attr")),
+                    HeaderValueMemberValue::Other(String::from("my attribute value")),
+                ),
+                (
+                    HeaderValueMemberName::Other(String::from("my-other-attr")),
+                    HeaderValueMemberValue::Other(String::from("my other attribute value")),
+                ),
+            ]),
+        )]);
+        assert_eq!(
+            format!("{}", h),
+            "text/html;q=0.32,my-attr=my attribute value,my-other-attr=my other attribute value"
+        );
     }
 }

@@ -59,20 +59,20 @@ impl ResBuilder {
         );
         let title = format!("Index of {}", rel_path);
         let html = format!(
-            r##"<!DOCTYPE HTML>
-                <html lang="en">
-                    <head>
-                        <meta charset="utf-8"/>
-                        <title>{}</title>
-                    </head>
-                    <body>
-                        <h1>{}</h1>
-                        <hr/>
-                        <ul>{}</ul>
-                        <hr/>
-                    </body>
-                </html>
-            "##,
+            "<!DOCTYPE HTML> \
+             <html lang=\"en\"> \
+                <head> \
+                    <meta charset=\"utf-8\"/> \
+                    <title>{}</title> \
+                </head> \
+                <body> \
+                    <h1>{}</h1> \
+                    <hr/> \
+                    <ul>{}</ul> \
+                    <hr/> \
+                </body> \
+             </html> \
+             \r\n",
             title,
             title,
             entries
@@ -130,16 +130,17 @@ impl ResBuilder {
                 http_res::get_reason_phrase(status_code)
             );
             let message = format!(
-                r##"<!DOCTYPE html>
-                <html lang="en">
-                    <head>
-                        <meta charset="utf-8"/>
-                        <title>{}</title>
-                    </head>
-                    <body>
-                        <h1>{}</h1>
-                    </body>
-                </html>"##,
+                "<!DOCTYPE html> \
+                 <html lang=\"en\"> \
+                    <head> \
+                        <meta charset=\"utf-8\"/> \
+                        <title>{}</title> \
+                    </head> \
+                    <body> \
+                        <h1>{}</h1> \
+                    </body> \
+                 </html> \
+                 \r\n",
                 title, title
             );
             self.res
