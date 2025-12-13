@@ -20,11 +20,19 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 /// Server settings, typically populated from CLI or configuration file.
 #[derive(Debug, Clone)]
 pub struct Settings {
+    /// Socket address to bind the server to
     pub address: net::SocketAddr,
+    /// Directory served as the root of the server (i.e. / in HTTP requests will be this dir, and so on)
     pub document_root: path::PathBuf,
+    /// Allow clients to request for directory, and to be presented a list of elements in that directory
     pub allow_dir_listing: bool,
+    /// TLS certificate and key for HTTPS. If one of them is missing, the server will fall back to HTTP instead
     pub ssl_cert_path: Option<path::PathBuf>,
     pub ssl_key_path: Option<path::PathBuf>,
+    /// Authentication credentials to use for basic HTTP authentication.
+    /// When some credentials are provided, the server will require client to be authenticated before accessing any resource.
+    /// This parameter can be a list of (username, password) credentials, any of which granting access to the server.
+    pub authentication_credentials: Option<Vec<(String, String)>>,
 }
 
 pub struct Server {
@@ -128,7 +136,7 @@ trait AsyncStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin {}
 impl AsyncStream for tokio::net::TcpStream {}
 impl AsyncStream for tokio_rustls::server::TlsStream<tokio::net::TcpStream> {}
 
-/// A client handler is responsible for handling a HTTP connection, once received by the server.
+/// A client handler is responsible for handling an HTTP connection, once received by the server.
 struct ClientHandler<S: AsyncStream> {
     settings: Settings,
     stream: S,
@@ -250,7 +258,26 @@ impl<S: AsyncStream> ClientHandler<S> {
     async fn serve_req(&mut self) {
         debug!("serving request");
 
-        match self.current_req.as_ref().unwrap().verb() {
+        let req = self.current_req.as_ref().unwrap();
+
+        // handle authentication
+        if let Some(creds_list) = self.settings.authentication_credentials.as_ref() {
+            // if the client provided some credentials, check them
+            if let Some((client_username, client_password)) = req.auth_creds()
+                && creds_list.iter().any(|(username, password)| {
+                    client_username == username && client_password == password
+                })
+            {
+                info!("User has valid credentials, granting access");
+            }
+            // otherwise, send error
+            else {
+                self.serve_error(401, true).await;
+                return;
+            }
+        }
+
+        match req.verb() {
             ReqVerb::Get => self.serve_static_resource().await,
             //_ => self.serve_error(405),
         };

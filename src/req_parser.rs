@@ -6,9 +6,9 @@ use crate::http_header::{
 };
 use crate::http_req::{ReqHead, ReqTarget, ReqVerb};
 
-use std::{collections, str::FromStr};
-
+use base64::Engine;
 use log::debug;
+use std::{collections, str::FromStr};
 
 struct RawReqHead {
     request_line: ascii::AsciiString,
@@ -48,6 +48,7 @@ pub enum HeaderParsingError {
     NoComponent,
     InvalidMime,
     InvalidFloat,
+    InvalidBasicCredentials,
 }
 
 #[derive(Debug, PartialEq)]
@@ -155,7 +156,20 @@ impl ReqHeadParser {
             let (name, value) = parse_header(name, value)?;
             headers.insert(name, value);
         }
-        Ok(ReqHead::new(verb, target, version, headers))
+        let authentication_credentials = if let Some(HeaderValue::Credentials(username, password)) =
+            headers.get(&ReqHeader::ReqOnly(ReqOnlyHeader::Authorization))
+        {
+            Some((username.clone(), password.clone()))
+        } else {
+            None
+        };
+        Ok(ReqHead::new(
+            verb,
+            target,
+            version,
+            headers,
+            authentication_credentials,
+        ))
     }
 
     pub fn reset(&mut self) {
@@ -258,7 +272,8 @@ fn parse_header(
         (b"accept-charset", v) => req_only_parsed_plain!(ReqOnlyHeader::AcceptCharset, v),
         (b"accept-encoding", v) => req_only_parsed_plain!(ReqOnlyHeader::AcceptEncoding, v),
         (b"accept-language", v) => req_only_parsed_plain!(ReqOnlyHeader::AcceptLanguage, v),
-        (b"authorization", v) => req_only_simple_plain!(ReqOnlyHeader::Authorization, v),
+        (b"authorization", v) => parse_authorization_header(v)
+            .map(|v| (ReqHeader::ReqOnly(ReqOnlyHeader::Authorization), v)),
         (b"expect", v) => req_only_simple_plain!(ReqOnlyHeader::Expect, v),
         (b"from", v) => req_only_simple_plain!(ReqOnlyHeader::From, v),
         (b"host", v) => req_only_simple_plain!(ReqOnlyHeader::Host, v),
@@ -379,6 +394,41 @@ where
         Ok((main_value_parser(main_value)?, attributes))
     } else {
         Ok((main_value_parser(value_str)?, collections::BTreeMap::new()))
+    }
+}
+
+fn parse_authorization_header(
+    value_str: &ascii::AsciiStr,
+) -> Result<HeaderValue, ReqHeadParsingError> {
+    if value_str[0..=5] == *"Basic " {
+        let encoded_creds =
+            value_str
+                .split(ascii::AsciiChar::Space)
+                .nth(1)
+                .ok_or(ReqHeadParsingError::Header(
+                    HeaderParsingError::InvalidBasicCredentials,
+                ))?;
+        let decoded_creds = base64::prelude::BASE64_STANDARD
+            .decode(encoded_creds.as_bytes())
+            .map_err(|_e| {
+                ReqHeadParsingError::Header(HeaderParsingError::InvalidBasicCredentials)
+            })?;
+        let decoded_creds = String::from_utf8(decoded_creds).map_err(|_e| {
+            ReqHeadParsingError::Header(HeaderParsingError::InvalidBasicCredentials)
+        })?;
+        match *decoded_creds.splitn(2, ":").collect::<Vec<_>>().as_slice() {
+            [username, password] => Ok(HeaderValue::Credentials(
+                String::from(username),
+                String::from(password),
+            )),
+            _ => Err(ReqHeadParsingError::Header(
+                HeaderParsingError::InvalidBasicCredentials,
+            )),
+        }
+    } else {
+        Err(ReqHeadParsingError::Header(
+            HeaderParsingError::InvalidBasicCredentials,
+        ))
     }
 }
 

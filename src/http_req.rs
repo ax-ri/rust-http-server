@@ -42,6 +42,7 @@ pub struct ReqHead {
     target: ReqTarget,
     version: String,
     headers: collections::HashMap<ReqHeader, HeaderValue>,
+    authentication_credentials: Option<(String, String)>,
 }
 
 impl ReqHead {
@@ -50,12 +51,14 @@ impl ReqHead {
         target: ReqTarget,
         version: String,
         headers: collections::HashMap<ReqHeader, HeaderValue>,
+        authentication_credentials: Option<(String, String)>,
     ) -> Self {
         Self {
             verb,
             target,
             version,
             headers,
+            authentication_credentials,
         }
     }
 
@@ -70,6 +73,10 @@ impl ReqHead {
                 HeaderValue::Simple(SimpleHeaderValue::Plain(v)) => v.eq("close"),
                 _ => false,
             })
+    }
+
+    pub fn auth_creds(&self) -> Option<&(String, String)> {
+        self.authentication_credentials.as_ref()
     }
 }
 
@@ -122,6 +129,10 @@ impl HttpReq {
     pub fn headers(&mut self) -> &mut collections::HashMap<ReqHeader, HeaderValue> {
         &mut self.head.headers
     }
+
+    pub fn auth_creds(&self) -> Option<&(String, String)> {
+        self.head.auth_creds()
+    }
 }
 
 #[cfg(test)]
@@ -138,6 +149,7 @@ mod tests {
                 ReqTarget::Path(String::from(path), String::from(path)),
                 String::from("HTTP/1.1"),
                 collections::HashMap::new(),
+                None,
             );
             assert_eq!(
                 format!("{}", req_head),
@@ -157,6 +169,7 @@ mod tests {
                 ReqHeader::ReqOnly(ReqOnlyHeader::Host),
                 HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("foo"))),
             )]),
+            None,
         );
         let mut req = HttpReq::new(now, req_head);
 
@@ -183,6 +196,7 @@ mod tests {
             ReqTarget::All,
             String::from("HTTP/1.1"),
             collections::HashMap::new(),
+            None,
         );
         let mut req = HttpReq::new(chrono::Utc::now(), req_head);
 
@@ -227,6 +241,7 @@ mod tests {
             ReqTarget::All,
             String::from("HTTP/1.1"),
             headers,
+            None,
         );
         let fmt = format!("{}", req_head);
         assert!(fmt.starts_with("GET * HTTP/1.1\r\n"));

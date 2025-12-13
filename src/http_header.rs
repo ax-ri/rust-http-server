@@ -139,6 +139,7 @@ impl fmt::Display for ParsedHeaderValue {
 pub enum HeaderValue {
     Simple(SimpleHeaderValue),
     Parsed(ParsedHeaderValue),
+    Credentials(String, String),
 }
 
 impl fmt::Display for HeaderValue {
@@ -147,6 +148,7 @@ impl fmt::Display for HeaderValue {
         match self {
             Self::Simple(s) => write!(f, "{}", s),
             Self::Parsed(s) => write!(f, "{}", s),
+            Self::Credentials(a, b) => write!(f, "{}:{}", a, b),
         }
     }
 }

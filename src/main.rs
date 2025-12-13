@@ -6,6 +6,28 @@ use std::{env, net, path};
 
 use log::{debug, info};
 
+fn parse_authentication_credentials(
+    argument: Option<String>,
+) -> Result<Option<Vec<(String, String)>>, String> {
+    if let Some(creds_list) = argument {
+        let mut auth_creds = Vec::new();
+        for creds in creds_list.split(",") {
+            match *creds.splitn(2, ':').collect::<Vec<&str>>().as_slice() {
+                [username, password] if !username.is_empty() && !password.is_empty() => {
+                    auth_creds.push((String::from(username), String::from(password)))
+                }
+                _ => return Err(format!("Invalid credential tuple: {}", creds)),
+            }
+        }
+        if auth_creds.is_empty() {
+            return Err(String::from("No valid credentials provided"));
+        }
+        Ok(Some(auth_creds))
+    } else {
+        Ok(None)
+    }
+}
+
 #[cfg_attr(coverage, coverage(off))]
 fn parse_args() -> Result<Settings, String> {
     let mut arg_parser = argparse_rs::ArgParser::new(String::from("rust-http-server"));
@@ -49,6 +71,10 @@ fn parse_args() -> Result<Settings, String> {
         "SSL key for HTTPS",
         argparse_rs::ArgType::Option,
     );
+    arg_parser.add_opt(
+        "auth-creds", None, 'p', false, "Comma-separated list of credentials (format: username:password). If provided, the server will only serve content to authenticated clients.",
+        argparse_rs::ArgType::Option,
+    );
     let args = arg_parser.parse(env::args().collect::<Vec<String>>().iter())?;
 
     Ok(Settings {
@@ -65,6 +91,9 @@ fn parse_args() -> Result<Settings, String> {
             .ok_or("invalid value for directory listing")?,
         ssl_cert_path: args.get::<path::PathBuf>("ssl-cert"),
         ssl_key_path: args.get::<path::PathBuf>("ssl-key"),
+        authentication_credentials: parse_authentication_credentials(
+            args.get::<String>("auth-creds"),
+        )?,
     })
 }
 
@@ -85,4 +114,32 @@ async fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     server.listen().await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_authentication_credentials_test() {
+        assert_eq!(parse_authentication_credentials(None), Ok(None));
+        assert!(parse_authentication_credentials(Some(String::new())).is_err());
+        assert!(parse_authentication_credentials(Some(String::from("username"))).is_err());
+        assert!(parse_authentication_credentials(Some(String::from("username:"))).is_err());
+        assert!(parse_authentication_credentials(Some(String::from(":password"))).is_err());
+        assert_eq!(
+            parse_authentication_credentials(Some(String::from("username:password"))),
+            Ok(Some(vec![(
+                String::from("username"),
+                String::from("password")
+            )]))
+        );
+        assert_eq!(
+            parse_authentication_credentials(Some(String::from("foo:bar,bar:foo"))),
+            Ok(Some(vec![
+                (String::from("foo"), String::from("bar")),
+                (String::from("bar"), String::from("foo"))
+            ]))
+        );
+    }
 }

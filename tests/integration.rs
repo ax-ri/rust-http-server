@@ -2,6 +2,7 @@
 //!
 //! Ensure the server behaves correctly in terms of content serving and HTTP errors.
 
+use base64::Engine;
 use rust_http_server::server;
 use rustls::pki_types::pem::PemObject;
 use std::{path, pin, sync};
@@ -367,11 +368,91 @@ async fn server_content_test(use_tls: bool, addr: &str) {
     assert_eq!(res.status(), reqwest::StatusCode::UNSUPPORTED_MEDIA_TYPE);
 }
 
-async fn server_test(use_tls: bool, addr: &str, allow_dir_listing: bool) {
-    server_http_error_test(use_tls, addr).await;
-    server_connection_test(use_tls, addr).await;
-    server_dir_listing_test(use_tls, addr, allow_dir_listing).await;
-    server_content_test(use_tls, addr).await;
+async fn server_authentication_test(
+    use_tls: bool,
+    addr: &str,
+    auth_creds: &Option<Vec<(String, String)>>,
+) {
+    let client = create_http_client().await;
+
+    match auth_creds {
+        Some(v) => {
+            assert!(!v.is_empty());
+
+            // check that un-authenticated requests are forbidden
+            let res = do_request(
+                &client,
+                use_tls,
+                addr,
+                "/lipsum.html",
+                reqwest::StatusCode::UNAUTHORIZED,
+            )
+            .await;
+            assert_eq!(
+                res.headers().get("WWW-Authenticate"),
+                Some(&reqwest::header::HeaderValue::from_str("Basic realm=\"simple\"").unwrap())
+            );
+
+            let (username, password) = &v[0];
+
+            // check that providing credentials works
+            let res = client
+                .get(build_url(use_tls, addr, "/lipsum.html"))
+                .header(
+                    "Authorization",
+                    format!(
+                        "Basic {}",
+                        base64::prelude::BASE64_STANDARD
+                            .encode(format!("{}:{}", username, password))
+                    ),
+                )
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+            // check that providing invalid credentials does not work
+            let res = client
+                .get(build_url(use_tls, addr, "/lipsum.html"))
+                .header(
+                    "Authorization",
+                    format!(
+                        "Basic {}",
+                        base64::prelude::BASE64_STANDARD
+                            .encode(format!("{}-INVALID:{}-INVALID", username, password))
+                    ),
+                )
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
+        }
+        None => {
+            do_request(
+                &client,
+                use_tls,
+                addr,
+                "/lipsum.html",
+                reqwest::StatusCode::OK,
+            )
+            .await;
+        }
+    }
+}
+
+async fn server_test(
+    use_tls: bool,
+    addr: &str,
+    allow_dir_listing: bool,
+    auth_creds: &Option<Vec<(String, String)>>,
+) {
+    if auth_creds.is_none() {
+        server_http_error_test(use_tls, addr).await;
+        server_connection_test(use_tls, addr).await;
+        server_dir_listing_test(use_tls, addr, allow_dir_listing).await;
+        server_content_test(use_tls, addr).await;
+    }
+    server_authentication_test(use_tls, addr, auth_creds).await;
 }
 
 #[tokio::test]
@@ -390,16 +471,24 @@ async fn integration_test() {
         allow_dir_listing: false,
         ssl_cert_path: None,
         ssl_key_path: None,
+        authentication_credentials: None,
     };
 
-    for allow_dir_listing in &[true, false] {
+    for (allow_dir_listing, auth_creds) in &[
+        (true, None),
+        (
+            false,
+            Some(vec![(String::from("foo-user"), String::from("bar-pass"))]),
+        ),
+    ] {
         settings.allow_dir_listing = *allow_dir_listing;
+        settings.authentication_credentials = auth_creds.clone();
 
         // test with HTTP
         settings.ssl_cert_path = None;
         settings.ssl_key_path = None;
         let (tx, handle) = spawn_server(settings.clone()).await;
-        server_test(false, addr, *allow_dir_listing).await;
+        server_test(false, addr, *allow_dir_listing, auth_creds).await;
         tx.send(()).unwrap();
         handle.await.unwrap();
 
@@ -407,7 +496,7 @@ async fn integration_test() {
         settings.ssl_cert_path = Some(server_cert.clone());
         settings.ssl_key_path = Some(server_key.clone());
         let (tx, handle) = spawn_server(settings.clone()).await;
-        server_test(true, addr, *allow_dir_listing).await;
+        server_test(true, addr, *allow_dir_listing, auth_creds).await;
         tx.send(()).unwrap();
         handle.await.unwrap();
     }

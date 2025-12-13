@@ -17,11 +17,11 @@ described [here](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Evolut
 The idea is to start from a very basic server application and then gradually add more advanced features, as listed
 below.
 
-- [ ] Basic features
+- [x] Basic features
     - [x] Listening for and accepting one TCP connection
     - [x] Static content support: serving resources (GET method) of different types (text and binary files, i.e. HTML,
       images, PDF files etc.)
-    - [ ] Support for [basic authentication](https://www.rfc-editor.org/rfc/rfc7617)
+    - [x] Support for [basic authentication](https://www.rfc-editor.org/rfc/rfc7617)
 - [ ] Medium features
     - [x] Handling several concurrent connections
     - [ ] Support of usual [request headers](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers) (
@@ -29,8 +29,8 @@ below.
     - [x] TLS encryption support (HTTPS)
 - [ ] Advanced (or optional) features
     - [ ] Dynamic content support
-    - [ ] handling other HTTP methods (POST, PUT, PATCH, DELETE) and request body processing
-    - [ ] interfacing with PHP language to handle dynamic HTML pages
+        - [ ] handling other HTTP methods (POST, PUT, PATCH, DELETE) and request body processing
+        - [ ] interfacing with PHP language to handle dynamic HTML pages
     - [ ] Support for caching
     - [ ] Support for configuration file (like Apache httpd or nginx) to define virtual hosts etc.
 

@@ -1045,6 +1045,7 @@ dependencies = [
  "anyhow",
  "argparse-rs",
  "ascii",
+ "base64",
  "chrono",
  "env_logger",
  "log",

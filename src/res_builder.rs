@@ -120,6 +120,16 @@ impl ResBuilder {
     pub fn build_error(&mut self, status_code: u16, with_body: bool) -> &mut HttpRes {
         self.res.set_status(status_code);
 
+        // 401 unauthorized error: add authentication request header
+        if status_code == 401 {
+            self.res.set_header(
+                ResHeader::ResOnlyHeader(ResOnlyHeader::WWWAuthenticate),
+                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from(
+                    "Basic realm=\"simple\"",
+                ))),
+            )
+        }
+
         // set content type
         if with_body {
             self.set_default_content_type();
