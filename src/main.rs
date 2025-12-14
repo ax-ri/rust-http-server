@@ -2,9 +2,9 @@
 
 use rust_http_server::server::{Server, Settings};
 
-use std::{env, net, path};
-
 use log::{debug, info};
+use std::{env, io, net, path};
+use termion::input::TermRead;
 
 fn parse_authentication_credentials(
     argument: Option<String>,
@@ -106,13 +106,36 @@ async fn main() -> Result<(), String> {
     }
     env_logger::init();
 
+    // parse arguments
     let server_settings = parse_args()?;
     debug!("server settings: {:?}", server_settings);
-    info!("Starting server");
+
+    // create server
     let mut server = Server::new(server_settings)
         .await
         .map_err(|e| e.to_string())?;
-    server.listen().await;
+
+    // setup keypress handling
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async {
+        info!("Press q to stop the server");
+        let stdin = io::stdin();
+        // detecting keydown events
+        for c in stdin.keys() {
+            if let termion::event::Key::Char('q') = c.unwrap() {
+                break;
+            }
+        }
+        // send quit signal
+        tx.send(()).unwrap();
+    });
+
+    info!("Starting server");
+    tokio::select! {
+        _ = rx => {},
+        _ = server.listen() => {}
+    }
+
     Ok(())
 }
 
