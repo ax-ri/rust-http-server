@@ -110,15 +110,18 @@ async fn main() -> Result<(), String> {
     let server_settings = parse_args()?;
     debug!("server settings: {:?}", server_settings);
 
+    info!("Starting server on {}", server_settings.address);
+
     // create server
     let mut server = Server::new(server_settings)
         .await
         .map_err(|e| e.to_string())?;
+    info!("Server listening");
 
     // setup keypress handling
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(async {
-        info!("Press q to stop the server");
+        info!("Press <q> then <Enter> to stop the server");
         let stdin = io::stdin();
         // detecting keydown events
         for c in stdin.keys() {
@@ -126,11 +129,10 @@ async fn main() -> Result<(), String> {
                 break;
             }
         }
-        // send quit signal
+        // send quit signal to main task
         tx.send(()).unwrap();
     });
 
-    info!("Starting server");
     tokio::select! {
         _ = rx => {},
         _ = server.listen() => {}
