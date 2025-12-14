@@ -56,6 +56,27 @@ pub enum ReqHeadParsingError {
     Ascii(ascii::AsAsciiStrError),
     FirstLine(FirstLineParsingError),
     Header(HeaderParsingError),
+    NoSupportedEncoding,
+}
+
+#[derive(Debug)]
+pub enum SupportedEncoding {
+    Gzip,
+    Deflate,
+    Zstd,
+    Br,
+}
+
+#[cfg_attr(coverage, coverage(off))]
+impl From<&SupportedEncoding> for String {
+    fn from(value: &SupportedEncoding) -> Self {
+        match value {
+            SupportedEncoding::Gzip => "gzip".to_string(),
+            SupportedEncoding::Deflate => "deflate".to_string(),
+            SupportedEncoding::Zstd => "zstd".to_string(),
+            SupportedEncoding::Br => "br".to_string(),
+        }
+    }
 }
 
 pub struct ReqHeadParser {
@@ -64,6 +85,7 @@ pub struct ReqHeadParser {
     parsed_req_head: Option<ReqHead>,
 }
 
+#[cfg_attr(coverage, coverage(off))]
 impl Default for ReqHeadParser {
     fn default() -> Self {
         Self::new()
@@ -151,11 +173,38 @@ impl ReqHeadParser {
 
     pub fn do_parse(&mut self) -> Result<ReqHead, ReqHeadParsingError> {
         let (verb, target, version) = parse_first_line(&self.raw_req_head.request_line)?;
+
         let mut headers = collections::HashMap::new();
         for (name, value) in &self.raw_req_head.headers {
             let (name, value) = parse_header(name, value)?;
             headers.insert(name, value);
         }
+
+        let encoding = if let Some(HeaderValue::Parsed(ParsedHeaderValue(v))) =
+            headers.get(&ReqHeader::ReqOnly(ReqOnlyHeader::AcceptEncoding))
+        {
+            let supported = v
+                .iter()
+                .filter_map(|(s, _)| match s {
+                    SimpleHeaderValue::Plain(s) => match s.as_str() {
+                        "gzip" => Some(SupportedEncoding::Gzip),
+                        "deflate" => Some(SupportedEncoding::Deflate),
+                        "zstd" => Some(SupportedEncoding::Zstd),
+                        "br" => Some(SupportedEncoding::Br),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .next();
+            if supported.is_none() && !v.is_empty() {
+                return Err(ReqHeadParsingError::NoSupportedEncoding);
+            };
+            supported
+        } else {
+            None
+        };
+
+        // authentication
         let authentication_credentials = if let Some(HeaderValue::Credentials(username, password)) =
             headers.get(&ReqHeader::ReqOnly(ReqOnlyHeader::Authorization))
         {
@@ -163,12 +212,14 @@ impl ReqHeadParser {
         } else {
             None
         };
+
         Ok(ReqHead::new(
             verb,
             target,
             version,
             headers,
             authentication_credentials,
+            encoding,
         ))
     }
 

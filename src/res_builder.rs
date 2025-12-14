@@ -2,8 +2,10 @@ use crate::http_header::{
     EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader, SimpleHeaderValue,
 };
 use crate::http_res::{self, HttpRes, ResBody};
+use crate::req_parser::SupportedEncoding;
 
-use std::{cmp, fs, path, str::FromStr};
+use log::debug;
+use std::{cmp, fs, io, path, str::FromStr};
 
 pub struct ResBuilder {
     res: HttpRes,
@@ -30,7 +32,7 @@ impl ResBuilder {
         &mut self,
         dir_path: &path::Path,
         rel_path: &str,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), io::Error> {
         self.set_default_content_type();
 
         let mut entries = if rel_path == "/" {
@@ -41,11 +43,11 @@ impl ResBuilder {
         for e in fs::read_dir(dir_path)? {
             let e = e
                 .as_ref()
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, ""))?;
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, ""))?;
             entries.push((
                 e.file_name()
                     .into_string()
-                    .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidFilename, ""))?,
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidFilename, ""))?,
                 e.metadata()?.is_dir(),
             ))
         }
@@ -96,13 +98,62 @@ impl ResBuilder {
         Ok(())
     }
 
-    pub async fn set_file_body(&mut self, file_path: &path::Path) -> Result<(), std::io::Error> {
+    pub async fn set_file_body(
+        &mut self,
+        mut file_path: &path::Path,
+        encoding: Option<&SupportedEncoding>,
+    ) -> Result<(), io::Error> {
         // set content type
         let mime_type = mime_guess::MimeGuess::from_path(file_path).first_or_octet_stream();
         self.res.set_header(
             ResHeader::EntityHeader(EntityHeader::ContentType),
-            HeaderValue::Simple(SimpleHeaderValue::Mime(mime_type)),
+            HeaderValue::Simple(SimpleHeaderValue::Mime(mime_type.clone())),
         );
+
+        let mut real_file_path = None;
+        if let Some(encoding) = encoding {
+            // set encoding if file is not already a compressed format
+            if mime_type.type_() == mime_guess::mime::TEXT {
+                debug!("using compression");
+
+                // create a temporary file to store the compressed version
+                let tmp_file = async_tempfile::TempFile::new()
+                    .await
+                    .map_err(io::Error::other)?;
+                // store the temp path for later use
+                real_file_path = Some(tmp_file.try_clone().await.map_err(io::Error::other)?);
+
+                // copy the real file to the compression encoder
+                let mut file = tokio::fs::File::open(file_path).await?;
+                use async_compression::tokio::write;
+                macro_rules! copy_with {
+                    ($e: path) => {{
+                        let mut encoder = $e(tmp_file);
+                        tokio::io::copy(&mut file, &mut encoder).await?;
+                    }};
+                }
+                match encoding {
+                    SupportedEncoding::Gzip => copy_with!(write::GzipEncoder::new),
+                    SupportedEncoding::Deflate => copy_with!(write::DeflateEncoder::new),
+                    SupportedEncoding::Zstd => copy_with!(write::ZstdEncoder::new),
+                    SupportedEncoding::Br => copy_with!(write::BrotliEncoder::new),
+                };
+
+                // set the used encoding in the response header
+                self.res.set_header(
+                    ResHeader::EntityHeader(EntityHeader::ContentEncoding),
+                    HeaderValue::Simple(SimpleHeaderValue::Plain(String::from(encoding))),
+                );
+
+                let metadata = fs::metadata(file_path)?;
+                debug!("real file length: {} bytes", metadata.len());
+            }
+        }
+        // if some compression was done, use the temporary file path instead
+        // to serve the compressed content
+        if let Some(tmp_file) = real_file_path.as_ref() {
+            file_path = tmp_file.file_path().as_path();
+        }
 
         let metadata = fs::metadata(file_path)?;
         // set content

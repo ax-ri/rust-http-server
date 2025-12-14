@@ -22,15 +22,17 @@ below.
     - [x] Static content support: serving resources (GET method) of different types (text and binary files, i.e. HTML,
       images, PDF files etc.)
     - [x] Support for [basic authentication](https://www.rfc-editor.org/rfc/rfc7617)
-- [ ] Medium features
+- [x] Medium features
     - [x] Handling several concurrent connections
-    - [ ] Support of usual [request headers](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers) (
-      *accept* headers, CORS, web socket upgrade request etc.)
+    - [x] Support of usual [request headers](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers)
+        - [x] `Accept` header (mime type)
+        - [x] `Content-Encoding` (compression)
     - [x] TLS encryption support (HTTPS)
 - [ ] Advanced (or optional) features
     - [ ] Dynamic content support
         - [ ] handling other HTTP methods (POST, PUT, PATCH, DELETE) and request body processing
         - [ ] interfacing with PHP language to handle dynamic HTML pages
+    - [ ] Support for several hosts (including CORS)
     - [ ] Support for caching
     - [ ] Support for configuration file (like Apache httpd or nginx) to define virtual hosts etc.
 

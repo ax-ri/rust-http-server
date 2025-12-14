@@ -368,6 +368,55 @@ async fn server_content_test(use_tls: bool, addr: &str) {
     assert_eq!(res.status(), reqwest::StatusCode::UNSUPPORTED_MEDIA_TYPE);
 }
 
+async fn server_encoding_test(use_tls: bool, addr: &str) {
+    let client = create_http_client().await;
+    let url = build_url(use_tls, addr, "/lipsum.html");
+
+    let uncompressed_length = client
+        .get(&url)
+        .send()
+        .await
+        .unwrap()
+        .content_length()
+        .unwrap();
+
+    // check that uncompressed content is sent when no encoding specified
+    let res = client.get(&url).send().await.unwrap();
+    assert_eq!(res.content_length().unwrap(), uncompressed_length);
+
+    // check that supported encoding actually compress the response
+    for (encoding, expected) in [
+        ("gzip", "gzip"),
+        ("deflate", "deflate"),
+        ("zstd", "zstd"),
+        ("br", "br"),
+        // at least one valid encoding should be ok too
+        ("foo,gzip", "gzip"),
+        ("deflate,gzip", "deflate"),
+        ("zstd,foo,bar,br", "zstd"),
+        ("foo,bar,br,foobar", "br"),
+    ] {
+        let res = client
+            .get(&url)
+            .header("Accept-Encoding", encoding)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        assert_eq!(res.headers()["Content-Encoding"], expected);
+        assert!(res.content_length().unwrap() < uncompressed_length);
+    }
+
+    // check that unsupported encoding triggers 501 error
+    let res = client
+        .get(&url)
+        .header("Accept-Encoding", "foo")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), reqwest::StatusCode::NOT_IMPLEMENTED);
+}
+
 async fn server_authentication_test(
     use_tls: bool,
     addr: &str,
@@ -451,6 +500,7 @@ async fn server_test(
         server_connection_test(use_tls, addr).await;
         server_dir_listing_test(use_tls, addr, allow_dir_listing).await;
         server_content_test(use_tls, addr).await;
+        server_encoding_test(use_tls, addr).await;
     }
     server_authentication_test(use_tls, addr, auth_creds).await;
 }

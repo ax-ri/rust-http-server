@@ -1,6 +1,7 @@
 //! Data structures for modeling an HTTP request.
 
 use crate::http_header::{GeneralHeader, HeaderValue, ReqHeader, SimpleHeaderValue};
+use crate::req_parser::SupportedEncoding;
 
 use std::{collections, fmt};
 
@@ -43,6 +44,7 @@ pub struct ReqHead {
     version: String,
     headers: collections::HashMap<ReqHeader, HeaderValue>,
     authentication_credentials: Option<(String, String)>,
+    encoding: Option<SupportedEncoding>,
 }
 
 impl ReqHead {
@@ -52,6 +54,7 @@ impl ReqHead {
         version: String,
         headers: collections::HashMap<ReqHeader, HeaderValue>,
         authentication_credentials: Option<(String, String)>,
+        encoding: Option<SupportedEncoding>,
     ) -> Self {
         Self {
             verb,
@@ -59,6 +62,7 @@ impl ReqHead {
             version,
             headers,
             authentication_credentials,
+            encoding,
         }
     }
 
@@ -73,6 +77,10 @@ impl ReqHead {
                 HeaderValue::Simple(SimpleHeaderValue::Plain(v)) => v.eq("close"),
                 _ => false,
             })
+    }
+
+    pub fn encoding(&self) -> Option<&SupportedEncoding> {
+        self.encoding.as_ref()
     }
 
     pub fn auth_creds(&self) -> Option<&(String, String)> {
@@ -130,6 +138,10 @@ impl HttpReq {
         &mut self.head.headers
     }
 
+    pub fn encoding(&self) -> Option<&SupportedEncoding> {
+        self.head.encoding()
+    }
+
     pub fn auth_creds(&self) -> Option<&(String, String)> {
         self.head.auth_creds()
     }
@@ -150,6 +162,7 @@ mod tests {
                 String::from("HTTP/1.1"),
                 collections::HashMap::new(),
                 None,
+                None,
             );
             assert_eq!(
                 format!("{}", req_head),
@@ -169,6 +182,7 @@ mod tests {
                 ReqHeader::ReqOnly(ReqOnlyHeader::Host),
                 HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("foo"))),
             )]),
+            None,
             None,
         );
         let mut req = HttpReq::new(now, req_head);
@@ -196,6 +210,7 @@ mod tests {
             ReqTarget::All,
             String::from("HTTP/1.1"),
             collections::HashMap::new(),
+            None,
             None,
         );
         let mut req = HttpReq::new(chrono::Utc::now(), req_head);
@@ -241,6 +256,7 @@ mod tests {
             ReqTarget::All,
             String::from("HTTP/1.1"),
             headers,
+            None,
             None,
         );
         let fmt = format!("{}", req_head);

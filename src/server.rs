@@ -229,16 +229,22 @@ impl<S: AsyncStream> ClientHandler<S> {
     async fn handle_req_parsing_error(&mut self, error: &ReqHeadParsingError) {
         match error {
             ReqHeadParsingError::Ascii(error) => {
-                warn!("Error parsing request as ASCII: {:?}", error)
+                warn!("Error parsing request as ASCII: {:?}", error);
+                self.serve_error(400, true).await;
             }
             ReqHeadParsingError::FirstLine(error) => {
-                warn!("Error parsing request first line: {:?}", error)
+                warn!("Error parsing request first line: {:?}", error);
+                self.serve_error(400, true).await;
             }
             ReqHeadParsingError::Header(error) => {
-                warn!("Error parsing request header: {:?}", error)
+                warn!("Error parsing request header: {:?}", error);
+                self.serve_error(400, true).await;
+            }
+            ReqHeadParsingError::NoSupportedEncoding => {
+                warn!("No supported encoding found");
+                self.serve_error(501, true).await;
             }
         };
-        self.serve_error(400, true).await;
     }
 
     async fn serve_error(&mut self, status_code: u16, with_body: bool) {
@@ -330,7 +336,10 @@ impl<S: AsyncStream> ClientHandler<S> {
                     return;
                 }
 
-                match res_builder.set_file_body(full_path.as_path()).await {
+                match res_builder
+                    .set_file_body(full_path.as_path(), req.encoding())
+                    .await
+                {
                     Ok(()) => {
                         let res = res_builder.do_build();
                         self.send_response(res).await
