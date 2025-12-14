@@ -4,11 +4,36 @@ use crate::http_header::{
 use crate::http_res::{self, HttpRes, ResBody};
 use crate::req_parser::SupportedEncoding;
 
+use crate::http_req::ReqVerb;
+use crate::res_builder::ResBuildingError::PhpError;
 use log::debug;
-use std::{cmp, fs, io, path, str::FromStr};
+use std::{cmp, fmt, fs, io, net, path, process, str::FromStr};
 
 pub struct ResBuilder {
     res: HttpRes,
+}
+
+#[derive(Debug)]
+pub enum ResBuildingError {
+    PhpError(String),
+}
+
+impl fmt::Display for ResBuildingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PhpError(e) => write!(f, "PHP error: {}", e),
+        }
+    }
+}
+
+pub struct PhpScriptParams<'a> {
+    pub script_path: &'a str,
+    pub script_query: &'a str,
+    pub used_credentials: Option<(String, String)>,
+    pub client_ip: &'a str,
+    pub verb: &'a ReqVerb,
+    pub address: &'a net::SocketAddr,
+    pub version: &'a str,
 }
 
 impl ResBuilder {
@@ -165,6 +190,85 @@ impl ResBuilder {
             let content = fs::read(file_path)?;
             self.res.set_body(Some(ResBody::Bytes(content)));
         }
+        Ok(())
+    }
+
+    pub async fn run_php_script(
+        &mut self,
+        params: PhpScriptParams<'_>,
+    ) -> Result<(), ResBuildingError> {
+        let output = process::Command::new("php-cgi")
+            .env_clear()
+            .env(
+                "AUTH_TYPE",
+                if params.used_credentials.is_some() {
+                    "Basic"
+                } else {
+                    ""
+                },
+            )
+            .env("CONTENT_LENGTH", "")
+            .env("CONTENT_TYPE", "")
+            .env("GATEWAY_INTERFACE", "1.1")
+            .env("PATH_INFO", "")
+            .env("PATH_TRANSLATED", "")
+            .env("QUERY_STRING", params.script_query)
+            .env("REMOTE_ADDR", params.client_ip)
+            .env("REMOTE_HOST", params.client_ip)
+            .env("REMOTE_IDENT", "")
+            .env(
+                "REMOTE_USER",
+                if let Some((username, _)) = params.used_credentials {
+                    username
+                } else {
+                    String::new()
+                },
+            )
+            .env("REQUEST_METHOD", format!("{}", params.verb))
+            .env("SCRIPT_NAME", "")
+            .env(
+                "SCRIPT_PATH",
+                path::PathBuf::from(params.script_path)
+                    .file_name()
+                    .ok_or(PhpError(String::from("Invalid script path")))?,
+            )
+            .env("SCRIPT_FILENAME", params.script_path)
+            .env("SERVER_NAME", params.address.ip().to_string())
+            .env("SERVER_PORT", params.address.port().to_string())
+            .env("SERVER_PROTOCOL", params.version)
+            .env("SERVER_SOFTWARE", "rust-http-server")
+            .env("REDIRECT_STATUS", "200")
+            .output()
+            .map_err(|e| PhpError(e.to_string()))?;
+
+        if !output.status.success() {
+            return Err(PhpError(format!(
+                "php-cgi error ({}): {}",
+                output.status,
+                String::from_utf8(output.stderr).ok().unwrap_or_default()
+            )));
+        }
+
+        let output = String::from_utf8(output.stdout).map_err(|e| PhpError(e.to_string()))?;
+        let mut split = output.splitn(2, "\r\n\r\n");
+        let (headers, body) = (
+            split
+                .next()
+                .ok_or(PhpError(String::from("Invalid script output")))?,
+            split
+                .next()
+                .ok_or(PhpError(String::from("Invalid script output")))?,
+        );
+        // let header_names = headers
+        //     .split("\r\n")
+        //     .filter_map(|h| h.split(':').next())
+        //     .map(str::to_lowercase)
+        //     .collect::<collections::HashSet<_>>();
+
+        self.res.set_raw_headers(String::from(headers) + "\r\n");
+        self.res
+            .set_body(Some(ResBody::Bytes(Vec::from(body.as_bytes()))));
+
         Ok(())
     }
 

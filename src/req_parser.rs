@@ -4,7 +4,7 @@ use crate::http_header::{
     GeneralHeader, HeaderValue, HeaderValueMemberName, HeaderValueMemberValue, ParsedHeaderValue,
     ReqHeader, ReqOnlyHeader, SimpleHeaderValue,
 };
-use crate::http_req::{ReqHead, ReqTarget, ReqVerb};
+use crate::http_req::{ReqHead, ReqPath, ReqTarget, ReqVerb};
 
 use base64::Engine;
 use log::debug;
@@ -38,6 +38,7 @@ pub enum FirstLineParsingError {
     EmptyLine,
     InvalidFieldCount,
     InvalidVerb,
+    InvalidTargetQuery,
     InvalidTargetEncoding,
 }
 
@@ -262,14 +263,41 @@ fn parse_http_verb(verb: &ascii::AsciiStr) -> Result<ReqVerb, ReqHeadParsingErro
 fn parse_http_target(target: &ascii::AsciiStr) -> Result<ReqTarget, ReqHeadParsingError> {
     match target.as_bytes() {
         b"*" => Ok(ReqTarget::All),
-        _ => Ok(ReqTarget::Path(
-            urlencoding::decode(target.as_str())
-                .map_err(|_| {
-                    ReqHeadParsingError::FirstLine(FirstLineParsingError::InvalidTargetEncoding)
-                })?
-                .into_owned(),
-            target.to_string(),
-        )),
+        _ => {
+            let (encoded_path, query) = match *target
+                .split(ascii::AsciiChar::Question)
+                .take(2)
+                .collect::<Vec<_>>()
+                .as_slice()
+            {
+                [target] => (target, String::new()),
+                [target, params] => (
+                    target,
+                    String::from(
+                        params
+                            .split(ascii::AsciiChar::Hash)
+                            .next()
+                            .unwrap()
+                            .as_str(),
+                    ),
+                ),
+                _ => {
+                    return Err(ReqHeadParsingError::FirstLine(
+                        FirstLineParsingError::InvalidTargetQuery,
+                    ));
+                }
+            };
+
+            Ok(ReqTarget::Path(ReqPath {
+                decoded: urlencoding::decode(encoded_path.as_str())
+                    .map_err(|_| {
+                        ReqHeadParsingError::FirstLine(FirstLineParsingError::InvalidTargetEncoding)
+                    })?
+                    .into_owned(),
+                original: target.to_string(),
+                query,
+            }))
+        }
     }
 }
 
@@ -488,6 +516,7 @@ fn parse_authorization_header(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http_req::ReqPath;
 
     fn ascii(s: &str) -> &ascii::AsciiStr {
         ascii::AsciiStr::from_ascii(s).unwrap()
@@ -499,7 +528,11 @@ mod tests {
             parse_first_line(ascii("GET / HTTP/1.1")),
             Ok((
                 ReqVerb::Get,
-                ReqTarget::Path(String::from("/"), String::from("/")),
+                ReqTarget::Path(ReqPath {
+                    decoded: String::from("/"),
+                    original: String::from("/"),
+                    query: String::new()
+                }),
                 String::from("HTTP/1.1")
             ))
         );
@@ -508,10 +541,11 @@ mod tests {
             parse_first_line(ascii("GET /dir/page.html HTTP/2.0")),
             Ok((
                 ReqVerb::Get,
-                ReqTarget::Path(
-                    String::from("/dir/page.html"),
-                    String::from("/dir/page.html")
-                ),
+                ReqTarget::Path(ReqPath {
+                    decoded: String::from("/dir/page.html"),
+                    original: String::from("/dir/page.html"),
+                    query: String::new()
+                }),
                 String::from("HTTP/2.0")
             ))
         );
@@ -522,10 +556,13 @@ mod tests {
             )),
             Ok((
                 ReqVerb::Get,
-                ReqTarget::Path(
-                    String::from("/répertoire spécial/fichier à tester"),
-                    String::from("%2Fr%C3%A9pertoire%20sp%C3%A9cial%2Ffichier%20%C3%A0%20tester")
-                ),
+                ReqTarget::Path(ReqPath {
+                    decoded: String::from("/répertoire spécial/fichier à tester"),
+                    original: String::from(
+                        "%2Fr%C3%A9pertoire%20sp%C3%A9cial%2Ffichier%20%C3%A0%20tester"
+                    ),
+                    query: String::new()
+                }),
                 String::from("HTTP/1.1")
             ))
         );

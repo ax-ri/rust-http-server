@@ -79,6 +79,7 @@ pub struct HttpRes {
     status_code: u16,
     headers: collections::HashMap<ResHeader, HeaderValue>,
     body: Option<ResBody>,
+    raw_headers: Option<String>,
 }
 
 impl HttpRes {
@@ -88,6 +89,7 @@ impl HttpRes {
             status_code: 200,
             headers: collections::HashMap::new(),
             body: None,
+            raw_headers: None,
         }
     }
 
@@ -107,6 +109,10 @@ impl HttpRes {
         self.headers.insert(name, value);
     }
 
+    pub fn set_raw_headers(&mut self, headers: String) {
+        self.raw_headers = Some(headers);
+    }
+
     pub fn head_bytes(&self) -> Vec<u8> {
         let mut res_string = String::new();
         res_string.push_str(&format!(
@@ -119,6 +125,10 @@ impl HttpRes {
         self.headers
             .iter()
             .for_each(|(name, value)| res_string.push_str(&format!("{}: {}\r\n", name, value)));
+
+        if let Some(h) = self.raw_headers.as_ref() {
+            res_string.push_str(h);
+        }
 
         res_string.push_str("\r\n");
 

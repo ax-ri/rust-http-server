@@ -147,6 +147,13 @@ async fn check_res_body(
     assert_eq!(res.text().await.unwrap(), body);
 }
 
+fn build_authorization(username: &str, password: &str) -> String {
+    format!(
+        "Basic {}",
+        base64::prelude::BASE64_STANDARD.encode(format!("{}:{}", username, password))
+    )
+}
+
 async fn server_http_error_test(use_tls: bool, addr: &str) {
     let (mut reader, mut writer) = create_raw_stream(use_tls, addr).await;
     let client = create_http_client().await;
@@ -289,11 +296,18 @@ async fn server_dir_listing_test(use_tls: bool, addr: &str, allow_dir_listing: b
         b"HTTP/1.1 403 Forbidden\r\n",
     )
     .await;
+    do_raw_request(
+        &mut reader,
+        &mut writer,
+        b"GET /../index.php HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        b"HTTP/1.1 404 Not Found\r\n",
+    )
+    .await;
 
     if allow_dir_listing {
         // root dir
-        check_res_body(&client, use_tls, addr, "", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
-        check_res_body(&client, use_tls, addr, "/", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
+        check_res_body(&client, use_tls, addr, "", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"get.php\">get.php</a></pre></li><li><pre><a href=\"index.php\">index.php</a></pre></li><li><pre><a href=\"invalid.php\">invalid.php</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
+        check_res_body(&client, use_tls, addr, "/", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"get.php\">get.php</a></pre></li><li><pre><a href=\"index.php\">index.php</a></pre></li><li><pre><a href=\"invalid.php\">invalid.php</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
 
         // sub-dir
         check_res_body(&client, use_tls, addr, "/subdir", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /subdir</title> </head> <body> <h1>Index of /subdir</h1> <hr/> <ul><li><pre><a href=\"/subdir/..\">../</a></pre></li><li><pre><a href=\"/subdir/lipsum-alt.txt\">lipsum-alt.txt</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
@@ -447,14 +461,7 @@ async fn server_authentication_test(
             // check that providing credentials works
             let res = client
                 .get(build_url(use_tls, addr, "/lipsum.html"))
-                .header(
-                    "Authorization",
-                    format!(
-                        "Basic {}",
-                        base64::prelude::BASE64_STANDARD
-                            .encode(format!("{}:{}", username, password))
-                    ),
-                )
+                .header("Authorization", build_authorization(username, password))
                 .send()
                 .await
                 .unwrap();
@@ -511,6 +518,52 @@ async fn server_authentication_test(
     }
 }
 
+async fn server_php_test(use_tls: bool, addr: &str, auth_creds: &Option<Vec<(String, String)>>) {
+    let client = create_http_client().await;
+
+    if let Some(v) = auth_creds {
+        let (username, password) = &v[0];
+        let res = client
+            .get(build_url(use_tls, addr, "/index.php"))
+            .header("Authorization", build_authorization(username, password))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        assert!(res.text().await.unwrap().contains(username));
+    } else {
+        for (route, response) in [
+            ("/get.php", "array(0) {\n}\n"),
+            (
+                "/get.php?foo=bar&bar=foo",
+                "array(2) {\n  [\"foo\"]=>\n  string(3) \"bar\"\n  [\"bar\"]=>\n  string(3) \"foo\"\n}\n",
+            ),
+            (
+                "/get.php?fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt=fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt",
+                "array(1) {\n  [\"fichier_à_caractères_spéciaux_français_txt\"]=>\n  string(46) \"fichier à caractères spéciaux français.txt\"\n}\n",
+            ),
+        ] {
+            let res = do_request(&client, use_tls, addr, route, reqwest::StatusCode::OK).await;
+            assert_eq!(
+                res.headers().get("Content-Type"),
+                Some(&reqwest::header::HeaderValue::from_static(
+                    "text/html; charset=UTF-8"
+                ))
+            );
+            assert_eq!(res.text().await.unwrap(), response);
+        }
+
+        do_request(
+            &client,
+            use_tls,
+            addr,
+            "/invalid.php",
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+        )
+        .await;
+    }
+}
+
 async fn server_test(
     use_tls: bool,
     addr: &str,
@@ -524,6 +577,7 @@ async fn server_test(
         server_content_test(use_tls, addr).await;
         server_encoding_test(use_tls, addr).await;
     }
+    server_php_test(use_tls, addr, auth_creds).await;
     server_authentication_test(use_tls, addr, auth_creds).await;
 }
 

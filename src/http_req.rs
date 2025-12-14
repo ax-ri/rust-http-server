@@ -22,17 +22,23 @@ impl fmt::Display for ReqVerb {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct ReqPath {
+    pub original: String,
+    pub decoded: String,
+    pub query: String,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum ReqTarget {
     All,
-    // path (url-decoded, original)
-    Path(String, String),
+    Path(ReqPath),
 }
 
 impl fmt::Display for ReqTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReqTarget::All => write!(f, "*"),
-            ReqTarget::Path(_, original) => write!(f, "{}", original),
+            ReqTarget::Path(ReqPath { original, .. }) => write!(f, "{}", original),
         }
     }
 }
@@ -158,7 +164,11 @@ mod tests {
         for path in paths {
             let req_head = ReqHead::new(
                 ReqVerb::Get,
-                ReqTarget::Path(String::from(path), String::from(path)),
+                ReqTarget::Path(ReqPath {
+                    original: String::from(path),
+                    decoded: String::from(path),
+                    query: String::new(),
+                }),
                 String::from("HTTP/1.1"),
                 collections::HashMap::new(),
                 None,

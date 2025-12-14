@@ -31,7 +31,7 @@ below.
 - [ ] Advanced (or optional) features
     - [ ] Dynamic content support
         - [ ] handling other HTTP methods (POST, PUT, PATCH, DELETE) and request body processing
-        - [ ] interfacing with PHP language to handle dynamic HTML pages
+        - [x] interfacing with PHP language to handle dynamic HTML pages
     - [ ] Support for several hosts (including CORS)
     - [ ] Support for caching
     - [ ] Support for configuration file (like Apache httpd or nginx) to define virtual hosts etc.

@@ -5,10 +5,10 @@
 use crate::http_header::{
     EntityHeader, HeaderValue, ReqHeader, ReqOnlyHeader, ResHeader, SimpleHeaderValue,
 };
-use crate::http_req::{HttpReq, ReqTarget, ReqVerb};
+use crate::http_req::{HttpReq, ReqPath, ReqTarget, ReqVerb};
 use crate::http_res::{HttpRes, ResBody};
 use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
-use crate::res_builder::ResBuilder;
+use crate::res_builder::{PhpScriptParams, ResBuilder};
 use crate::utils;
 
 use std::{collections, fmt, io, net, path, sync};
@@ -267,6 +267,7 @@ impl<S: AsyncStream> ClientHandler<S> {
         let req = self.current_req.as_ref().unwrap();
 
         // handle authentication
+        let mut used_credentials = None;
         if let Some(creds_list) = self.settings.authentication_credentials.as_ref() {
             // if the client provided some credentials, check them
             if let Some((client_username, client_password)) = req.auth_creds()
@@ -275,6 +276,7 @@ impl<S: AsyncStream> ClientHandler<S> {
                 })
             {
                 info!("User has valid credentials, granting access");
+                used_credentials = Some((client_username.clone(), client_password.clone()));
             }
             // otherwise, send error
             else {
@@ -283,12 +285,65 @@ impl<S: AsyncStream> ClientHandler<S> {
             }
         }
 
-        match req.verb() {
-            ReqVerb::Get => self.serve_static_resource().await,
-            //_ => self.serve_error(405),
-        };
+        if let ReqTarget::Path(ReqPath { decoded: path, .. }) = req.target()
+            && path.ends_with(".php")
+        {
+            debug!("serving PHP content");
+            self.serve_php(used_credentials).await;
+        } else {
+            debug!("serving static content");
+            match req.verb() {
+                ReqVerb::Get => self.serve_static_resource().await,
+                //_ => self.serve_error(405),
+            };
+        }
 
         debug!("request served");
+    }
+
+    async fn serve_php(&mut self, used_credentials: Option<(String, String)>) {
+        let req = self.current_req.as_ref().unwrap();
+        let (path, query) = match req.target() {
+            ReqTarget::Path(ReqPath {
+                decoded: path,
+                query,
+                ..
+            }) => (path, query),
+            _ => panic!(),
+        };
+
+        let script_path = match self.resolve_path(path).await {
+            Ok(path) => match path.to_str() {
+                Some(path) => path.to_owned(),
+                None => {
+                    self.serve_error(500, true).await;
+                    return;
+                }
+            },
+            Err(code) => {
+                self.serve_error(code, true).await;
+                return;
+            }
+        };
+
+        let mut res_builder = ResBuilder::new(req.version());
+        if let Err(e) = res_builder
+            .run_php_script(PhpScriptParams {
+                script_path: script_path.as_str(),
+                script_query: query,
+                used_credentials,
+                client_ip: self.peer_addr.split(':').next().unwrap(),
+                verb: req.verb(),
+                address: &self.settings.address,
+                version: req.version(),
+            })
+            .await
+        {
+            warn!("Cannot serve PHP script: {}", e);
+            self.serve_error(500, true).await;
+        }
+        let res = res_builder.do_build();
+        self.send_response(res).await;
     }
 
     async fn serve_static_resource(&mut self) {
@@ -298,24 +353,14 @@ impl<S: AsyncStream> ClientHandler<S> {
             // target '*' not supported for get resource
             ReqTarget::All => self.serve_error(400, true).await,
             // serve target from path
-            ReqTarget::Path(path, _) => {
-                // convert target resource path to file system path
-                let mut full_path = String::from(self.settings.document_root.to_str().unwrap());
-                full_path.push_str(path);
-
-                // canonicalize to resolve '..' and others
-                let full_path = path::Path::new(&full_path).canonicalize();
-                if full_path.is_err() {
-                    self.serve_error(404, true).await;
-                    return;
-                }
-                let full_path = full_path.unwrap();
-
-                // prevent path traversal: the resource path must be a sub-path of the doc root
-                if !full_path.starts_with(self.settings.document_root.as_path()) {
-                    self.serve_error(403, true).await;
-                    return;
-                }
+            ReqTarget::Path(ReqPath { decoded: path, .. }) => {
+                let full_path = match self.resolve_path(path).await {
+                    Ok(path) => path,
+                    Err(code) => {
+                        self.serve_error(code, true).await;
+                        return;
+                    }
+                };
 
                 // prevent directory listing by default
                 if full_path.is_dir() {
@@ -351,6 +396,25 @@ impl<S: AsyncStream> ClientHandler<S> {
                 }
             }
         }
+    }
+
+    async fn resolve_path(&self, path: &str) -> Result<path::PathBuf, u16> {
+        // convert target resource path to file system path
+        let mut full_path = String::from(self.settings.document_root.to_str().unwrap());
+        full_path.push_str(path);
+
+        // canonicalize to resolve '..' and others
+        let full_path = path::Path::new(&full_path).canonicalize();
+        if full_path.is_err() {
+            return Err(404);
+        }
+        let full_path = full_path.unwrap();
+
+        // prevent path traversal: the resource path must be a sub-path of the doc root
+        if !full_path.starts_with(self.settings.document_root.as_path()) {
+            return Err(403);
+        }
+        Ok(full_path)
     }
 
     async fn send_response(&mut self, res: &mut HttpRes) {
