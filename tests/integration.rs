@@ -475,6 +475,28 @@ async fn server_authentication_test(
                 .await
                 .unwrap();
             assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+            // check that providing invalid authorization header triggers error
+            for value in [
+                "Basic invalid_base64",
+                "Basic",
+                "Basic ",
+                "foobar",
+                format!("Basic {}", base64::prelude::BASE64_STANDARD.encode("")).as_str(),
+                format!(
+                    "Basic {}",
+                    base64::prelude::BASE64_STANDARD.encode("invalid")
+                )
+                .as_str(),
+            ] {
+                let res = client
+                    .get(build_url(use_tls, addr, "/lipsum.html"))
+                    .header("Authorization", value)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(res.status(), reqwest::StatusCode::BAD_REQUEST);
+            }
         }
         None => {
             do_request(

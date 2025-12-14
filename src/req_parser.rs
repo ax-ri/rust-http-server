@@ -273,6 +273,8 @@ fn parse_http_target(target: &ascii::AsciiStr) -> Result<ReqTarget, ReqHeadParsi
     }
 }
 
+// because many headers are not used, exclude this function from coverage
+#[cfg_attr(coverage, coverage(off))]
 fn parse_header(
     name: &ascii::AsciiStr,
     value: &ascii::AsciiStr,
@@ -310,7 +312,7 @@ fn parse_header(
         // general headers
         (b"cache-control", v) => general_simple_plain!(GeneralHeader::CacheControl, v),
         (b"connection", v) => general_simple_plain!(GeneralHeader::Connection, v),
-        (b"date", v) => general_simple_plain!(GeneralHeader::Pragma, v),
+        (b"date", v) => general_simple_plain!(GeneralHeader::Date, v),
         (b"trailer", v) => general_simple_plain!(GeneralHeader::Trailer, v),
         (b"transfer-encoding", v) => general_simple_plain!(GeneralHeader::TransferEncoding, v),
         (b"upgrade", v) => general_simple_plain!(GeneralHeader::Upgrade, v),
@@ -451,7 +453,7 @@ where
 fn parse_authorization_header(
     value_str: &ascii::AsciiStr,
 ) -> Result<HeaderValue, ReqHeadParsingError> {
-    if value_str[0..=5] == *"Basic " {
+    if value_str.len() > 6 && value_str[0..=5] == *"Basic " {
         let encoded_creds =
             value_str
                 .split(ascii::AsciiChar::Space)
