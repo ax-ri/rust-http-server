@@ -357,7 +357,6 @@ impl<S: AsyncStream> ClientHandler<S> {
         {
             match accepted.get() {
                 HeaderValue::Simple(SimpleHeaderValue::Mime(accepted)) => {
-                    dbg!(&actual);
                     if !utils::are_mime_compatible(accepted, actual) {
                         self.serve_error(415, false).await;
                         return;
