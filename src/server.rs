@@ -33,6 +33,7 @@ pub struct Settings {
     /// When some credentials are provided, the server will require client to be authenticated before accessing any resource.
     /// This parameter can be a list of (username, password) credentials, any of which granting access to the server.
     pub authentication_credentials: Option<Vec<(String, String)>>,
+    pub php_cgi_binary: String,
 }
 
 pub struct Server {
@@ -363,6 +364,7 @@ impl<S: AsyncStream> ClientHandler<S> {
         let mut res_builder = ResBuilder::new(req.version());
         if let Err(err) = res_builder
             .run_php_script(PhpScriptParams {
+                interpreter_path: self.settings.php_cgi_binary.as_ref(),
                 script_path: script_path.as_str(),
                 script_query: query,
                 used_credentials,

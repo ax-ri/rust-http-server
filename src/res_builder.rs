@@ -28,6 +28,7 @@ impl fmt::Display for ResBuildingError {
 }
 
 pub struct PhpScriptParams<'a> {
+    pub interpreter_path: &'a str,
     pub script_path: &'a str,
     pub script_query: &'a str,
     pub used_credentials: Option<(String, String)>,
@@ -208,7 +209,7 @@ impl ResBuilder {
             _ => (String::new(), "", false),
         };
 
-        let mut child = process::Command::new("php-cgi")
+        let mut child = process::Command::new(params.interpreter_path)
             .stdin(process::Stdio::piped())
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())

@@ -1,4 +1,4 @@
-#![feature(coverage_attribute)]
+#![cfg_attr(coverage, feature(coverage_attribute))]
 
 use rust_http_server::server::{Server, Settings};
 
@@ -36,7 +36,7 @@ fn parse_args() -> Result<Settings, String> {
         None,
         'a',
         true,
-        "Socket address",
+        "Socket address to bind",
         argparse_rs::ArgType::Option,
     );
     arg_parser.add_opt(
@@ -52,7 +52,7 @@ fn parse_args() -> Result<Settings, String> {
         Some("false"),
         'd',
         false,
-        "Allow directory listing",
+        "Allow directory listing (default: false)",
         argparse_rs::ArgType::Flag,
     );
     arg_parser.add_opt(
@@ -75,7 +75,22 @@ fn parse_args() -> Result<Settings, String> {
         "auth-creds", None, 'p', false, "Comma-separated list of credentials (format: username:password). If provided, the server will only serve content to authenticated clients.",
         argparse_rs::ArgType::Option,
     );
-    let args = arg_parser.parse(env::args().collect::<Vec<String>>().iter())?;
+    arg_parser.add_opt(
+        "php-binary",
+        Some("php-cgi"),
+        'P',
+        false,
+        "Alternate path for php binary, used to process PHP scripts with CGI (default: php-cgi)",
+        argparse_rs::ArgType::Option,
+    );
+
+    let args = match arg_parser.parse(env::args().collect::<Vec<String>>().iter()) {
+        Ok(args) => args,
+        Err(e) => {
+            arg_parser.help();
+            return Err(e.to_string());
+        }
+    };
 
     Ok(Settings {
         address: args
@@ -94,6 +109,9 @@ fn parse_args() -> Result<Settings, String> {
         authentication_credentials: parse_authentication_credentials(
             args.get::<String>("auth-creds"),
         )?,
+        php_cgi_binary: args
+            .get::<String>("php-binary")
+            .ok_or("invalid php binary path")?,
     })
 }
 

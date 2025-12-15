@@ -1,5 +1,4 @@
 #![cfg_attr(coverage, feature(coverage_attribute))]
-extern crate core;
 
 pub mod http_header;
 pub mod http_req;

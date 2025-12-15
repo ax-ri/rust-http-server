@@ -639,6 +639,7 @@ async fn integration_test() {
         ssl_cert_path: None,
         ssl_key_path: None,
         authentication_credentials: None,
+        php_cgi_binary: String::from("php-cgi"),
     };
 
     for (allow_dir_listing, auth_creds) in &[
