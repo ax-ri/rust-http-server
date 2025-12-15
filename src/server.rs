@@ -211,6 +211,7 @@ impl<S: AsyncStream> ClientHandler<S> {
 
                     self.current_req = Some(HttpReq::new(chrono::Utc::now(), parsed_head));
                     self.serve_req().await;
+
                     if self.current_req.as_ref().unwrap().should_close() {
                         if let Err(err) = self.stream.shutdown().await {
                             warn!("Cannot close connection, {:?}", err);
@@ -425,7 +426,7 @@ impl<S: AsyncStream> ClientHandler<S> {
                 .entry(ReqHeader::ReqOnly(ReqOnlyHeader::Accept))
             && let collections::hash_map::Entry::Occupied(actual) = res
                 .headers()
-                .entry(ResHeader::EntityHeader(EntityHeader::ContentType))
+                .entry(ResHeader::Entity(EntityHeader::ContentType))
             && let HeaderValue::Simple(SimpleHeaderValue::Mime(actual)) = actual.get()
         {
             match accepted.get() {

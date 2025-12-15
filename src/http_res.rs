@@ -166,26 +166,26 @@ mod tests {
         let mut res = HttpRes::new("HTTP/1.1");
         res.set_status(200);
         res.set_header(
-            ResHeader::GeneralHeader(GeneralHeader::Connection),
+            ResHeader::General(GeneralHeader::Connection),
             HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive"))),
         );
         res.set_header(
-            ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
+            ResHeader::ResOnly(ResOnlyHeader::Server),
             HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
         );
 
         assert_eq!(res.status_code(), 200);
-        assert!(res.has_header(ResHeader::GeneralHeader(GeneralHeader::Connection)));
-        assert!(res.has_header(ResHeader::ResOnlyHeader(ResOnlyHeader::Server)));
+        assert!(res.has_header(ResHeader::General(GeneralHeader::Connection)));
+        assert!(res.has_header(ResHeader::ResOnly(ResOnlyHeader::Server)));
         assert_eq!(
             res.headers,
             collections::HashMap::from([
                 (
-                    ResHeader::GeneralHeader(GeneralHeader::Connection),
+                    ResHeader::General(GeneralHeader::Connection),
                     HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive")))
                 ),
                 (
-                    ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
+                    ResHeader::ResOnly(ResOnlyHeader::Server),
                     HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
                 )
             ])

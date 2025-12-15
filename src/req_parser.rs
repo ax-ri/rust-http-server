@@ -313,7 +313,7 @@ fn parse_header(
     macro_rules! general_simple_plain {
         ($variant: expr, $v: ident) => {
             Ok((
-                ReqHeader::GeneralHeader($variant),
+                ReqHeader::General($variant),
                 HeaderValue::Simple(SimpleHeaderValue::Plain($v.to_string())),
             ))
         };

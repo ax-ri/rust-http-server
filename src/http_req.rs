@@ -78,7 +78,7 @@ impl ReqHead {
 
     pub fn should_close(&self) -> bool {
         self.headers
-            .get(&ReqHeader::GeneralHeader(GeneralHeader::Connection))
+            .get(&ReqHeader::General(GeneralHeader::Connection))
             .is_some_and(|h| match h {
                 HeaderValue::Simple(SimpleHeaderValue::Plain(v)) => v.eq("close"),
                 _ => false,
@@ -226,14 +226,14 @@ mod tests {
         let mut req = HttpReq::new(chrono::Utc::now(), req_head);
 
         req.headers().insert(
-            ReqHeader::GeneralHeader(GeneralHeader::Connection),
+            ReqHeader::General(GeneralHeader::Connection),
             HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("close"))),
         );
 
         assert!(req.should_close());
 
         req.headers().insert(
-            ReqHeader::GeneralHeader(GeneralHeader::Connection),
+            ReqHeader::General(GeneralHeader::Connection),
             HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive"))),
         );
         assert!(!req.should_close());
@@ -243,7 +243,7 @@ mod tests {
     fn http_req_headers_test() {
         let mut headers = collections::HashMap::new();
         headers.insert(
-            ReqHeader::GeneralHeader(GeneralHeader::Connection),
+            ReqHeader::General(GeneralHeader::Connection),
             HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("close"))),
         );
         headers.insert(

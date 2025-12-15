@@ -46,7 +46,7 @@ impl ResBuilder {
     fn set_default_content_type(&mut self) {
         // set content type
         self.res.set_header(
-            ResHeader::EntityHeader(EntityHeader::ContentType),
+            ResHeader::Entity(EntityHeader::ContentType),
             HeaderValue::Simple(SimpleHeaderValue::Mime(
                 mime_guess::Mime::from_str("text/html; charset=utf-8").unwrap(),
             )),
@@ -131,7 +131,7 @@ impl ResBuilder {
         // set content type
         let mime_type = mime_guess::MimeGuess::from_path(file_path).first_or_octet_stream();
         self.res.set_header(
-            ResHeader::EntityHeader(EntityHeader::ContentType),
+            ResHeader::Entity(EntityHeader::ContentType),
             HeaderValue::Simple(SimpleHeaderValue::Mime(mime_type.clone())),
         );
 
@@ -166,7 +166,7 @@ impl ResBuilder {
 
                 // set the used encoding in the response header
                 self.res.set_header(
-                    ResHeader::EntityHeader(EntityHeader::ContentEncoding),
+                    ResHeader::Entity(EntityHeader::ContentEncoding),
                     HeaderValue::Simple(SimpleHeaderValue::Plain(String::from(encoding))),
                 );
 
@@ -278,7 +278,7 @@ impl ResBuilder {
         // 401 unauthorized error: add authentication request header
         if status_code == 401 {
             self.res.set_header(
-                ResHeader::ResOnlyHeader(ResOnlyHeader::WWWAuthenticate),
+                ResHeader::ResOnly(ResOnlyHeader::WWWAuthenticate),
                 HeaderValue::Simple(SimpleHeaderValue::Plain(String::from(
                     "Basic realm=\"simple\"",
                 ))),
@@ -312,7 +312,7 @@ impl ResBuilder {
                 .set_body(Some(ResBody::Bytes(message.into_bytes())));
         } else {
             self.res.set_header(
-                ResHeader::EntityHeader(EntityHeader::ContentLength),
+                ResHeader::Entity(EntityHeader::ContentLength),
                 HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("0"))),
             );
         }
@@ -321,12 +321,9 @@ impl ResBuilder {
 
     pub fn do_build(&mut self) -> &mut HttpRes {
         // set date if not already present
-        if !self
-            .res
-            .has_header(ResHeader::GeneralHeader(GeneralHeader::Date))
-        {
+        if !self.res.has_header(ResHeader::General(GeneralHeader::Date)) {
             self.res.set_header(
-                ResHeader::GeneralHeader(GeneralHeader::Date),
+                ResHeader::General(GeneralHeader::Date),
                 HeaderValue::Simple(SimpleHeaderValue::Plain(
                     chrono::Utc::now()
                         .format("%a, %d %b %Y %H:%M:%S GMT")
@@ -338,10 +335,10 @@ impl ResBuilder {
         // set server origin if not already present
         if !self
             .res
-            .has_header(ResHeader::ResOnlyHeader(ResOnlyHeader::Server))
+            .has_header(ResHeader::ResOnly(ResOnlyHeader::Server))
         {
             self.res.set_header(
-                ResHeader::ResOnlyHeader(ResOnlyHeader::Server),
+                ResHeader::ResOnly(ResOnlyHeader::Server),
                 HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
             );
         }
@@ -351,7 +348,7 @@ impl ResBuilder {
             && !body.is_empty()
         {
             self.res.set_header(
-                ResHeader::EntityHeader(EntityHeader::ContentLength),
+                ResHeader::Entity(EntityHeader::ContentLength),
                 HeaderValue::Simple(SimpleHeaderValue::Number(body.len() as u64)),
             )
         }

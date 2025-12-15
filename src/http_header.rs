@@ -20,15 +20,15 @@ impl fmt::Display for GeneralHeader {
     #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GeneralHeader::CacheControl => write!(f, "Cache-Control"),
-            GeneralHeader::Connection => write!(f, "Connection"),
-            GeneralHeader::Date => write!(f, "Date"),
-            GeneralHeader::Pragma => write!(f, "Pragma"),
-            GeneralHeader::Trailer => write!(f, "Trailer"),
-            GeneralHeader::TransferEncoding => write!(f, "Transfer-Encoding"),
-            GeneralHeader::Upgrade => write!(f, "Upgrade"),
-            GeneralHeader::Via => write!(f, "Via"),
-            GeneralHeader::Warning => write!(f, "Warning"),
+            Self::CacheControl => write!(f, "Cache-Control"),
+            Self::Connection => write!(f, "Connection"),
+            Self::Date => write!(f, "Date"),
+            Self::Pragma => write!(f, "Pragma"),
+            Self::Trailer => write!(f, "Trailer"),
+            Self::TransferEncoding => write!(f, "Transfer-Encoding"),
+            Self::Upgrade => write!(f, "Upgrade"),
+            Self::Via => write!(f, "Via"),
+            Self::Warning => write!(f, "Warning"),
         }
     }
 }
@@ -180,25 +180,25 @@ impl fmt::Display for ReqOnlyHeader {
     #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReqOnlyHeader::Accept => write!(f, "Accept"),
-            ReqOnlyHeader::AcceptCharset => write!(f, "Accept-Charset"),
-            ReqOnlyHeader::AcceptEncoding => write!(f, "Accept-Encoding"),
-            ReqOnlyHeader::AcceptLanguage => write!(f, "Accept-Language"),
-            ReqOnlyHeader::Authorization => write!(f, "Authorization"),
-            ReqOnlyHeader::Expect => write!(f, "Expect"),
-            ReqOnlyHeader::From => write!(f, "From"),
-            ReqOnlyHeader::Host => write!(f, "Host"),
-            ReqOnlyHeader::IfMatch => write!(f, "If-Match"),
-            ReqOnlyHeader::IfModifiedSince => write!(f, "If-Modified-Since"),
-            ReqOnlyHeader::IfNoneMatch => write!(f, "If-None-Match"),
-            ReqOnlyHeader::IfRange => write!(f, "If-Range"),
-            ReqOnlyHeader::IfUnmodifiedSince => write!(f, "If-Unmodified-Since"),
-            ReqOnlyHeader::MaxForwards => write!(f, "Max-Forwards"),
-            ReqOnlyHeader::ProxyAuthorization => write!(f, "Proxy-Authorization"),
-            ReqOnlyHeader::Range => write!(f, "Range"),
-            ReqOnlyHeader::Referer => write!(f, "Referer"),
-            ReqOnlyHeader::TE => write!(f, "TE"),
-            ReqOnlyHeader::UserAgent => write!(f, "User-Agent"),
+            Self::Accept => write!(f, "Accept"),
+            Self::AcceptCharset => write!(f, "Accept-Charset"),
+            Self::AcceptEncoding => write!(f, "Accept-Encoding"),
+            Self::AcceptLanguage => write!(f, "Accept-Language"),
+            Self::Authorization => write!(f, "Authorization"),
+            Self::Expect => write!(f, "Expect"),
+            Self::From => write!(f, "From"),
+            Self::Host => write!(f, "Host"),
+            Self::IfMatch => write!(f, "If-Match"),
+            Self::IfModifiedSince => write!(f, "If-Modified-Since"),
+            Self::IfNoneMatch => write!(f, "If-None-Match"),
+            Self::IfRange => write!(f, "If-Range"),
+            Self::IfUnmodifiedSince => write!(f, "If-Unmodified-Since"),
+            Self::MaxForwards => write!(f, "Max-Forwards"),
+            Self::ProxyAuthorization => write!(f, "Proxy-Authorization"),
+            Self::Range => write!(f, "Range"),
+            Self::Referer => write!(f, "Referer"),
+            Self::TE => write!(f, "TE"),
+            Self::UserAgent => write!(f, "User-Agent"),
         }
     }
 }
@@ -221,15 +221,15 @@ impl fmt::Display for ResOnlyHeader {
     #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ResOnlyHeader::AcceptRanges => write!(f, "Accept-Ranges"),
-            ResOnlyHeader::Age => write!(f, "Age"),
-            ResOnlyHeader::ETag => write!(f, "ETag"),
-            ResOnlyHeader::Location => write!(f, "Location"),
-            ResOnlyHeader::ProxyAuthenticate => write!(f, "Proxy-Authenticate"),
-            ResOnlyHeader::RetryAfter => write!(f, "Retry-After"),
-            ResOnlyHeader::Server => write!(f, "Server"),
-            ResOnlyHeader::Vary => write!(f, "Vary"),
-            ResOnlyHeader::WWWAuthenticate => write!(f, "WWW-Authenticate"),
+            Self::AcceptRanges => write!(f, "Accept-Ranges"),
+            Self::Age => write!(f, "Age"),
+            Self::ETag => write!(f, "ETag"),
+            Self::Location => write!(f, "Location"),
+            Self::ProxyAuthenticate => write!(f, "Proxy-Authenticate"),
+            Self::RetryAfter => write!(f, "Retry-After"),
+            Self::Server => write!(f, "Server"),
+            Self::Vary => write!(f, "Vary"),
+            Self::WWWAuthenticate => write!(f, "WWW-Authenticate"),
         }
     }
 }
@@ -253,24 +253,25 @@ impl fmt::Display for EntityHeader {
     #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EntityHeader::Allow => write!(f, "Allow"),
-            EntityHeader::ContentEncoding => write!(f, "Content-Encoding"),
-            EntityHeader::ContentLanguage => write!(f, "Content-Language"),
-            EntityHeader::ContentLength => write!(f, "Content-Length"),
-            EntityHeader::ContentLocation => write!(f, "Content-Location"),
-            EntityHeader::ContentMD5 => write!(f, "Content-MD5"),
-            EntityHeader::ContentRange => write!(f, "Content-Range"),
-            EntityHeader::ContentType => write!(f, "Content-Type"),
-            EntityHeader::Expires => write!(f, "Expires"),
-            EntityHeader::LastModified => write!(f, "Last-Modified"),
+            Self::Allow => write!(f, "Allow"),
+            Self::ContentEncoding => write!(f, "Content-Encoding"),
+            Self::ContentLanguage => write!(f, "Content-Language"),
+            Self::ContentLength => write!(f, "Content-Length"),
+            Self::ContentLocation => write!(f, "Content-Location"),
+            Self::ContentMD5 => write!(f, "Content-MD5"),
+            Self::ContentRange => write!(f, "Content-Range"),
+            Self::ContentType => write!(f, "Content-Type"),
+            Self::Expires => write!(f, "Expires"),
+            Self::LastModified => write!(f, "Last-Modified"),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum ReqHeader {
-    GeneralHeader(GeneralHeader),
+    General(GeneralHeader),
     ReqOnly(ReqOnlyHeader),
+    Entity(EntityHeader),
     Other(String),
 }
 
@@ -278,9 +279,10 @@ impl fmt::Display for ReqHeader {
     #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReqHeader::GeneralHeader(h) => write!(f, "{}", h),
-            ReqHeader::ReqOnly(h) => write!(f, "{}", h),
-            ReqHeader::Other(name) => write!(f, "{}", name),
+            Self::General(h) => write!(f, "{}", h),
+            Self::ReqOnly(h) => write!(f, "{}", h),
+            Self::Entity(h) => write!(f, "{}", h),
+            Self::Other(name) => write!(f, "{}", name),
         }
     }
 }
@@ -288,9 +290,9 @@ impl fmt::Display for ReqHeader {
 #[derive(Debug, PartialEq, Eq, Hash)]
 #[allow(unused)]
 pub enum ResHeader {
-    GeneralHeader(GeneralHeader),
-    ResOnlyHeader(ResOnlyHeader),
-    EntityHeader(EntityHeader),
+    General(GeneralHeader),
+    ResOnly(ResOnlyHeader),
+    Entity(EntityHeader),
     Other(String),
 }
 
@@ -298,10 +300,10 @@ impl fmt::Display for ResHeader {
     #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ResHeader::GeneralHeader(h) => write!(f, "{}", h),
-            ResHeader::ResOnlyHeader(h) => write!(f, "{}", h),
-            ResHeader::EntityHeader(h) => write!(f, "{}", h),
-            ResHeader::Other(name) => write!(f, "{}", name),
+            Self::General(h) => write!(f, "{}", h),
+            Self::ResOnly(h) => write!(f, "{}", h),
+            Self::Entity(h) => write!(f, "{}", h),
+            Self::Other(name) => write!(f, "{}", name),
         }
     }
 }
