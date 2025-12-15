@@ -1,5 +1,5 @@
 //! Data structures for modeling HTTP headers.
-//!
+
 use std::{collections, fmt};
 
 #[derive(Debug, PartialEq, Eq, Hash)]

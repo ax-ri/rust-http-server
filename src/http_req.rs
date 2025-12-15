@@ -1,22 +1,29 @@
 //! Data structures for modeling an HTTP request.
 
-use crate::http_header::{GeneralHeader, HeaderValue, ReqHeader, SimpleHeaderValue};
+use crate::http_header::{EntityHeader, GeneralHeader, HeaderValue, ReqHeader, SimpleHeaderValue};
 use crate::req_parser::SupportedEncoding;
 
 use std::{collections, fmt};
-
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug, PartialEq)]
 pub enum ReqVerb {
     Get,
+    Post,
+    Put,
+    Patch,
+    Delete,
 }
 
 impl fmt::Display for ReqVerb {
     #[cfg_attr(coverage, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReqVerb::Get => f.write_str("GET"),
+            Self::Get => f.write_str("GET"),
+            Self::Post => f.write_str("POST"),
+            Self::Put => f.write_str("PUT"),
+            Self::Patch => f.write_str("PATCH"),
+            Self::Delete => f.write_str("DELETE"),
         }
     }
 }
@@ -37,8 +44,8 @@ pub enum ReqTarget {
 impl fmt::Display for ReqTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ReqTarget::All => write!(f, "*"),
-            ReqTarget::Path(ReqPath { original, .. }) => write!(f, "{}", original),
+            Self::All => write!(f, "*"),
+            Self::Path(ReqPath { original, .. }) => write!(f, "{}", original),
         }
     }
 }
@@ -85,12 +92,36 @@ impl ReqHead {
             })
     }
 
-    pub fn encoding(&self) -> Option<&SupportedEncoding> {
+    pub fn accepted_encoding(&self) -> Option<&SupportedEncoding> {
         self.encoding.as_ref()
     }
 
     pub fn auth_creds(&self) -> Option<&(String, String)> {
         self.authentication_credentials.as_ref()
+    }
+
+    pub fn body_len(&self) -> usize {
+        self.headers
+            .get(&ReqHeader::Entity(EntityHeader::ContentLength))
+            .map(|v| match *v {
+                HeaderValue::Simple(SimpleHeaderValue::Number(n)) => n as usize,
+                _ => 0,
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn body_encoding(&self) -> Option<&HeaderValue> {
+        self.headers
+            .get(&ReqHeader::Entity(EntityHeader::ContentEncoding))
+    }
+
+    pub fn body_type(&self) -> Option<&str> {
+        self.headers
+            .get(&ReqHeader::Entity(EntityHeader::ContentType))
+            .map(|v| match v {
+                HeaderValue::Simple(SimpleHeaderValue::Plain(s)) => s,
+                _ => "",
+            })
     }
 }
 
@@ -104,16 +135,40 @@ impl fmt::Display for ReqHead {
     }
 }
 
+#[derive(Debug)]
+pub struct ReqBody {
+    bytes: Vec<u8>,
+    content_type: String,
+}
+
+impl ReqBody {
+    pub fn new(bytes: Vec<u8>, content_type: String) -> Self {
+        Self {
+            bytes,
+            content_type,
+        }
+    }
+
+    pub fn bytes(&self) -> &Vec<u8> {
+        &self.bytes
+    }
+
+    pub fn content_type(&self) -> &str {
+        self.content_type.as_str()
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub struct HttpReq {
     date: chrono::DateTime<chrono::Utc>,
     head: ReqHead,
+    body: Option<ReqBody>,
 }
 
 impl HttpReq {
-    pub fn new(date: chrono::DateTime<chrono::Utc>, head: ReqHead) -> Self {
-        Self { date, head }
+    pub fn new(date: chrono::DateTime<chrono::Utc>, head: ReqHead, body: Option<ReqBody>) -> Self {
+        Self { date, head, body }
     }
 
     pub fn date(&self) -> &chrono::DateTime<chrono::Utc> {
@@ -144,12 +199,16 @@ impl HttpReq {
         &mut self.head.headers
     }
 
-    pub fn encoding(&self) -> Option<&SupportedEncoding> {
-        self.head.encoding()
+    pub fn accepted_encoding(&self) -> Option<&SupportedEncoding> {
+        self.head.accepted_encoding()
     }
 
     pub fn auth_creds(&self) -> Option<&(String, String)> {
         self.head.auth_creds()
+    }
+
+    pub fn body(&self) -> Option<&ReqBody> {
+        self.body.as_ref()
     }
 }
 
@@ -195,7 +254,7 @@ mod tests {
             None,
             None,
         );
-        let mut req = HttpReq::new(now, req_head);
+        let mut req = HttpReq::new(now, req_head, None);
 
         assert_eq!(*req.date(), now);
         assert_eq!(req.version(), "HTTP/1.1");
@@ -223,7 +282,7 @@ mod tests {
             None,
             None,
         );
-        let mut req = HttpReq::new(chrono::Utc::now(), req_head);
+        let mut req = HttpReq::new(chrono::Utc::now(), req_head, None);
 
         req.headers().insert(
             ReqHeader::General(GeneralHeader::Connection),

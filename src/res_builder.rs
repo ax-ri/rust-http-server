@@ -4,9 +4,10 @@ use crate::http_header::{
 use crate::http_res::{self, HttpRes, ResBody};
 use crate::req_parser::SupportedEncoding;
 
-use crate::http_req::ReqVerb;
+use crate::http_req::{ReqBody, ReqVerb};
 use crate::res_builder::ResBuildingError::PhpError;
 use log::debug;
+use std::io::Write;
 use std::{cmp, fmt, fs, io, net, path, process, str::FromStr};
 
 pub struct ResBuilder {
@@ -34,6 +35,7 @@ pub struct PhpScriptParams<'a> {
     pub verb: &'a ReqVerb,
     pub address: &'a net::SocketAddr,
     pub version: &'a str,
+    pub body: Option<&'a ReqBody>,
 }
 
 impl ResBuilder {
@@ -197,7 +199,19 @@ impl ResBuilder {
         &mut self,
         params: PhpScriptParams<'_>,
     ) -> Result<(), ResBuildingError> {
-        let output = process::Command::new("php-cgi")
+        let (content_length, content_type, has_bytes) = match (params.verb, params.body) {
+            (ReqVerb::Post, Some(body))
+            | (ReqVerb::Put, Some(body))
+            | (ReqVerb::Patch, Some(body)) => {
+                (body.bytes().len().to_string(), body.content_type(), true)
+            }
+            _ => (String::new(), "", false),
+        };
+
+        let mut child = process::Command::new("php-cgi")
+            .stdin(process::Stdio::piped())
+            .stdout(process::Stdio::piped())
+            .stderr(process::Stdio::piped())
             .env_clear()
             .env(
                 "AUTH_TYPE",
@@ -207,8 +221,8 @@ impl ResBuilder {
                     ""
                 },
             )
-            .env("CONTENT_LENGTH", "")
-            .env("CONTENT_TYPE", "")
+            .env("CONTENT_LENGTH", content_length)
+            .env("CONTENT_TYPE", content_type)
             .env("GATEWAY_INTERFACE", "1.1")
             .env("PATH_INFO", "")
             .env("PATH_TRANSLATED", "")
@@ -224,7 +238,7 @@ impl ResBuilder {
                     String::new()
                 },
             )
-            .env("REQUEST_METHOD", format!("{}", params.verb))
+            .env("REQUEST_METHOD", params.verb.to_string())
             .env("SCRIPT_NAME", "")
             .env(
                 "SCRIPT_PATH",
@@ -238,7 +252,19 @@ impl ResBuilder {
             .env("SERVER_PROTOCOL", params.version)
             .env("SERVER_SOFTWARE", "rust-http-server")
             .env("REDIRECT_STATUS", "200")
-            .output()
+            .spawn()
+            .map_err(|e| PhpError(e.to_string()))?;
+
+        let mut stdin = child.stdin.take().unwrap();
+        if has_bytes && let Some(body) = params.body {
+            stdin
+                .write_all(body.bytes())
+                .map_err(|e| PhpError(e.to_string()))?;
+            stdin.flush().map_err(|e| PhpError(e.to_string()))?;
+        }
+        drop(stdin);
+        let output = child
+            .wait_with_output()
             .map_err(|e| PhpError(e.to_string()))?;
 
         if !output.status.success() {
@@ -259,11 +285,6 @@ impl ResBuilder {
                 .next()
                 .ok_or(PhpError(String::from("Invalid script output")))?,
         );
-        // let header_names = headers
-        //     .split("\r\n")
-        //     .filter_map(|h| h.split(':').next())
-        //     .map(str::to_lowercase)
-        //     .collect::<collections::HashSet<_>>();
 
         self.res.set_raw_headers(String::from(headers) + "\r\n");
         self.res

@@ -29,8 +29,8 @@ below.
         - [x] `Content-Encoding` (compression)
     - [x] TLS encryption support (HTTPS)
 - [ ] Advanced (or optional) features
-    - [ ] Dynamic content support
-        - [ ] handling other HTTP methods (POST, PUT, PATCH, DELETE) and request body processing
+    - [x] Dynamic content support
+        - [x] handling other HTTP methods (POST, PUT, PATCH, DELETE) and request body processing
         - [x] interfacing with PHP language to handle dynamic HTML pages
     - [ ] Support for several hosts (including CORS)
     - [ ] Support for caching

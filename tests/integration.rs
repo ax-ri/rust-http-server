@@ -306,8 +306,8 @@ async fn server_dir_listing_test(use_tls: bool, addr: &str, allow_dir_listing: b
 
     if allow_dir_listing {
         // root dir
-        check_res_body(&client, use_tls, addr, "", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"get.php\">get.php</a></pre></li><li><pre><a href=\"index.php\">index.php</a></pre></li><li><pre><a href=\"invalid.php\">invalid.php</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
-        check_res_body(&client, use_tls, addr, "/", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"get.php\">get.php</a></pre></li><li><pre><a href=\"index.php\">index.php</a></pre></li><li><pre><a href=\"invalid.php\">invalid.php</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
+        check_res_body(&client, use_tls, addr, "", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"php\">php/</a></pre></li><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
+        check_res_body(&client, use_tls, addr, "/", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /</title> </head> <body> <h1>Index of /</h1> <hr/> <ul><li><pre><a href=\"php\">php/</a></pre></li><li><pre><a href=\"subdir\">subdir/</a></pre></li><li><pre><a href=\"fichier à caractères spéciaux français.txt\">fichier à caractères spéciaux français.txt</a></pre></li><li><pre><a href=\"lipsum.html\">lipsum.html</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
 
         // sub-dir
         check_res_body(&client, use_tls, addr, "/subdir", "<!DOCTYPE HTML> <html lang=\"en\"> <head> <meta charset=\"utf-8\"/> <title>Index of /subdir</title> </head> <body> <h1>Index of /subdir</h1> <hr/> <ul><li><pre><a href=\"/subdir/..\">../</a></pre></li><li><pre><a href=\"/subdir/lipsum-alt.txt\">lipsum-alt.txt</a></pre></li></ul> <hr/> </body> </html> \r\n").await;
@@ -521,10 +521,12 @@ async fn server_authentication_test(
 async fn server_php_test(use_tls: bool, addr: &str, auth_creds: &Option<Vec<(String, String)>>) {
     let client = create_http_client().await;
 
+    // cgi spec involves making the cgi script aware of the fact that the user was authenticated
+    // so here is a basic test to cover this case
     if let Some(v) = auth_creds {
         let (username, password) = &v[0];
         let res = client
-            .get(build_url(use_tls, addr, "/index.php"))
+            .get(build_url(use_tls, addr, "/php/index.php"))
             .header("Authorization", build_authorization(username, password))
             .send()
             .await
@@ -532,14 +534,15 @@ async fn server_php_test(use_tls: bool, addr: &str, auth_creds: &Option<Vec<(Str
         assert_eq!(res.status(), reqwest::StatusCode::OK);
         assert!(res.text().await.unwrap().contains(username));
     } else {
+        // check that GET params are handled
         for (route, response) in [
-            ("/get.php", "array(0) {\n}\n"),
+            ("/php/get.php", "array(0) {\n}\n"),
             (
-                "/get.php?foo=bar&bar=foo",
+                "/php/get.php?foo=bar&bar=foo",
                 "array(2) {\n  [\"foo\"]=>\n  string(3) \"bar\"\n  [\"bar\"]=>\n  string(3) \"foo\"\n}\n",
             ),
             (
-                "/get.php?fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt=fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt",
+                "/php/get.php?fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt=fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt",
                 "array(1) {\n  [\"fichier_à_caractères_spéciaux_français_txt\"]=>\n  string(46) \"fichier à caractères spéciaux français.txt\"\n}\n",
             ),
         ] {
@@ -553,14 +556,52 @@ async fn server_php_test(use_tls: bool, addr: &str, auth_creds: &Option<Vec<(Str
             assert_eq!(res.text().await.unwrap(), response);
         }
 
+        // check that a php syntax error triggers internal server error
         do_request(
             &client,
             use_tls,
             addr,
-            "/invalid.php",
+            "/php/invalid.php",
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
         )
         .await;
+
+        // check POST requests
+        for (payload, response) in [
+            ("", "array(0) {\n}\n"),
+            (
+                "foo=bar&bar=foo",
+                "array(2) {\n  [\"foo\"]=>\n  string(3) \"bar\"\n  [\"bar\"]=>\n  string(3) \"foo\"\n}\n",
+            ),
+            (
+                "fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt=fichier%20%C3%A0%20caract%C3%A8res%20sp%C3%A9ciaux%20fran%C3%A7ais.txt",
+                "array(1) {\n  [\"fichier_à_caractères_spéciaux_français_txt\"]=>\n  string(46) \"fichier à caractères spéciaux français.txt\"\n}\n",
+            ),
+        ] {
+            let res = client
+                .post(build_url(use_tls, addr, "/php/post.php"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(payload)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(
+                res.headers().get("Content-Type"),
+                Some(&reqwest::header::HeaderValue::from_static(
+                    "text/html; charset=UTF-8"
+                ))
+            );
+            assert_eq!(res.text().await.unwrap(), response);
+        }
+
+        // check other verbs (PUT, PATCH, DELETE)
+        let url = build_url(use_tls, addr, "/php/index.php");
+        let res = client.put(&url).body("data").send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let res = client.patch(&url).body("data").send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
+        let res = client.delete(&url).send().await.unwrap();
+        assert_eq!(res.status(), reqwest::StatusCode::OK);
     }
 }
 

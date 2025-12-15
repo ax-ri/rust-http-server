@@ -3,6 +3,9 @@ name = "rust-http-server"
 version = "0.1.0"
 edition = "2024"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
+
 [dependencies]
 argparse-rs = "0.1.0"
 ascii = "1.1.0"
@@ -20,9 +23,7 @@ base64 = "0.22.1"
 termion = "4.0.6"
 async-compression = { version = "0.4.36", features = ["tokio", "all-algorithms"] }
 async-tempfile = "0.7.0"
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
+compression = { version = "0.1.5", features = ["gzip", "deflate", "zlib"] }
 
 [dev-dependencies]
 reqwest = "0.12.25"

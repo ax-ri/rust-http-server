@@ -1,8 +1,8 @@
 //! HTTP request parsing.
 
 use crate::http_header::{
-    GeneralHeader, HeaderValue, HeaderValueMemberName, HeaderValueMemberValue, ParsedHeaderValue,
-    ReqHeader, ReqOnlyHeader, SimpleHeaderValue,
+    EntityHeader, GeneralHeader, HeaderValue, HeaderValueMemberName, HeaderValueMemberValue,
+    ParsedHeaderValue, ReqHeader, ReqOnlyHeader, SimpleHeaderValue,
 };
 use crate::http_req::{ReqHead, ReqPath, ReqTarget, ReqVerb};
 
@@ -50,6 +50,7 @@ pub enum HeaderParsingError {
     InvalidMime,
     InvalidFloat,
     InvalidBasicCredentials,
+    NumberParsing,
 }
 
 #[derive(Debug, PartialEq)]
@@ -58,6 +59,7 @@ pub enum ReqHeadParsingError {
     FirstLine(FirstLineParsingError),
     Header(HeaderParsingError),
     NoSupportedEncoding,
+    BodyDecoding,
 }
 
 #[derive(Debug)]
@@ -181,26 +183,11 @@ impl ReqHeadParser {
             headers.insert(name, value);
         }
 
+        // select supported encoding if present
         let encoding = if let Some(HeaderValue::Parsed(ParsedHeaderValue(v))) =
             headers.get(&ReqHeader::ReqOnly(ReqOnlyHeader::AcceptEncoding))
         {
-            let supported = v
-                .iter()
-                .filter_map(|(s, _)| match s {
-                    SimpleHeaderValue::Plain(s) => match s.as_str() {
-                        "gzip" => Some(SupportedEncoding::Gzip),
-                        "deflate" => Some(SupportedEncoding::Deflate),
-                        "zstd" => Some(SupportedEncoding::Zstd),
-                        "br" => Some(SupportedEncoding::Br),
-                        _ => None,
-                    },
-                    _ => None,
-                })
-                .next();
-            if supported.is_none() && !v.is_empty() {
-                return Err(ReqHeadParsingError::NoSupportedEncoding);
-            };
-            supported
+            Some(extract_supported_encoding(v)?)
         } else {
             None
         };
@@ -254,6 +241,10 @@ fn parse_first_line(
 fn parse_http_verb(verb: &ascii::AsciiStr) -> Result<ReqVerb, ReqHeadParsingError> {
     match verb.as_bytes() {
         b"GET" => Ok(ReqVerb::Get),
+        b"POST" => Ok(ReqVerb::Post),
+        b"PUT" => Ok(ReqVerb::Put),
+        b"PATCH" => Ok(ReqVerb::Patch),
+        b"DELETE" => Ok(ReqVerb::Delete),
         _ => Err(ReqHeadParsingError::FirstLine(
             FirstLineParsingError::InvalidVerb,
         )),
@@ -336,6 +327,35 @@ fn parse_header(
         };
     }
 
+    // entity header with simple plain value
+    macro_rules! entity_simple_plain {
+        ($variant: expr, $v: ident) => {
+            Ok((
+                ReqHeader::Entity($variant),
+                HeaderValue::Simple(SimpleHeaderValue::Plain($v.to_string())),
+            ))
+        };
+    }
+
+    // entity header with simple number value
+    macro_rules! entity_simple_number {
+        ($variant: expr, $v: ident) => {
+            Ok((
+                ReqHeader::Entity($variant),
+                HeaderValue::Simple(SimpleHeaderValue::Number($v.as_str().parse().map_err(
+                    |_| ReqHeadParsingError::Header(HeaderParsingError::NumberParsing),
+                )?)),
+            ))
+        };
+    }
+
+    // entity header with value parsed as plain
+    macro_rules! entity_parsed_plain {
+        ($variant: expr, $v: ident) => {
+            parse_header_value_plain($v).map(|v| (ReqHeader::Entity($variant), v))
+        };
+    }
+
     match (name.as_bytes(), value) {
         // general headers
         (b"cache-control", v) => general_simple_plain!(GeneralHeader::CacheControl, v),
@@ -369,6 +389,17 @@ fn parse_header(
         (b"referer", v) => req_only_simple_plain!(ReqOnlyHeader::Referer, v),
         (b"te", v) => req_only_simple_plain!(ReqOnlyHeader::TE, v),
         (b"user-agent", v) => req_only_simple_plain!(ReqOnlyHeader::UserAgent, v),
+        // entity header
+        (b"allow", v) => entity_simple_plain!(EntityHeader::Allow, v),
+        (b"content-encoding", v) => entity_parsed_plain!(EntityHeader::ContentEncoding, v),
+        (b"content-language", v) => entity_parsed_plain!(EntityHeader::ContentLanguage, v),
+        (b"content-length", v) => entity_simple_number!(EntityHeader::ContentLength, v),
+        (b"content-location", v) => entity_simple_plain!(EntityHeader::ContentLocation, v),
+        (b"content-md5", v) => entity_simple_plain!(EntityHeader::ContentMD5, v),
+        (b"content-range", v) => entity_simple_plain!(EntityHeader::ContentRange, v),
+        (b"content-type", v) => entity_simple_plain!(EntityHeader::ContentType, v),
+        (b"expires", v) => entity_simple_plain!(EntityHeader::Expires, v),
+        (b"last-modified", v) => entity_simple_plain!(EntityHeader::LastModified, v),
         // other
         (name, v) => Ok((
             ReqHeader::Other(
@@ -510,6 +541,54 @@ fn parse_authorization_header(
         Err(ReqHeadParsingError::Header(
             HeaderParsingError::InvalidBasicCredentials,
         ))
+    }
+}
+
+fn extract_supported_encoding(
+    v: &[(
+        SimpleHeaderValue,
+        collections::BTreeMap<HeaderValueMemberName, HeaderValueMemberValue>,
+    )],
+) -> Result<SupportedEncoding, ReqHeadParsingError> {
+    let supported = v
+        .iter()
+        .filter_map(|(s, _)| match s {
+            SimpleHeaderValue::Plain(s) => match s.as_str() {
+                "gzip" => Some(SupportedEncoding::Gzip),
+                "deflate" => Some(SupportedEncoding::Deflate),
+                "zstd" => Some(SupportedEncoding::Zstd),
+                "br" => Some(SupportedEncoding::Br),
+                _ => None,
+            },
+            _ => None,
+        })
+        .next();
+    if supported.is_none() && !v.is_empty() {
+        return Err(ReqHeadParsingError::NoSupportedEncoding);
+    };
+    Ok(supported.unwrap())
+}
+
+pub fn decode_req_body(req_head: &ReqHead, body: Vec<u8>) -> Result<Vec<u8>, ReqHeadParsingError> {
+    if let Some(HeaderValue::Parsed(ParsedHeaderValue(v))) = req_head.body_encoding() {
+        use compression::prelude::*;
+        macro_rules! decode_with {
+            ($d: path) => {{
+                body.iter()
+                    .cloned()
+                    .decode(&mut $d())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| ReqHeadParsingError::BodyDecoding)
+            }};
+        }
+
+        match extract_supported_encoding(v)? {
+            SupportedEncoding::Gzip => decode_with!(GZipDecoder::new),
+            SupportedEncoding::Deflate => decode_with!(Deflater::new),
+            _ => Err(ReqHeadParsingError::NoSupportedEncoding),
+        }
+    } else {
+        Ok(body)
     }
 }
 

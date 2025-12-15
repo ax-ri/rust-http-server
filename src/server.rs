@@ -5,13 +5,13 @@
 use crate::http_header::{
     EntityHeader, HeaderValue, ReqHeader, ReqOnlyHeader, ResHeader, SimpleHeaderValue,
 };
-use crate::http_req::{HttpReq, ReqPath, ReqTarget, ReqVerb};
+use crate::http_req::{HttpReq, ReqBody, ReqPath, ReqTarget, ReqVerb};
 use crate::http_res::{HttpRes, ResBody};
 use crate::req_parser::{ReqHeadParser, ReqHeadParsingError};
 use crate::res_builder::{PhpScriptParams, ResBuilder};
-use crate::utils;
+use crate::{req_parser, utils};
 
-use std::{collections, fmt, io, net, path, sync};
+use std::{collections, fmt, io, net, path, sync, vec};
 
 use log::{debug, error, info, warn};
 use rustls::pki_types::pem::PemObject;
@@ -209,9 +209,37 @@ impl<S: AsyncStream> ClientHandler<S> {
                 Ok(parsed_head) => {
                     debug!("request head parsing done");
 
-                    self.current_req = Some(HttpReq::new(chrono::Utc::now(), parsed_head));
+                    // read body if needed
+                    let mut body = None;
+                    let body_len = parsed_head.body_len();
+                    if body_len != 0 {
+                        debug!("reading request body");
+                        let mut buf = vec![0; body_len];
+                        if let Err(err) = buf_reader.read_exact(&mut buf).await {
+                            warn!("Unable to read request body: {:?}", err);
+                            continue;
+                        }
+
+                        // decode the request body
+                        match req_parser::decode_req_body(&parsed_head, buf) {
+                            Ok(req_body) => {
+                                body = Some(ReqBody::new(
+                                    req_body,
+                                    String::from(parsed_head.body_type().unwrap_or_default()),
+                                ))
+                            }
+                            Err(err) => {
+                                self.handle_req_parsing_error(&err).await;
+                                continue;
+                            }
+                        }
+                    }
+
+                    // serve the request
+                    self.current_req = Some(HttpReq::new(chrono::Utc::now(), parsed_head, body));
                     self.serve_req().await;
 
+                    // handle connection closing if needed
                     if self.current_req.as_ref().unwrap().should_close() {
                         if let Err(err) = self.stream.shutdown().await {
                             warn!("Cannot close connection, {:?}", err);
@@ -243,6 +271,10 @@ impl<S: AsyncStream> ClientHandler<S> {
             }
             ReqHeadParsingError::NoSupportedEncoding => {
                 warn!("No supported encoding found");
+                self.serve_error(501, true).await;
+            }
+            ReqHeadParsingError::BodyDecoding => {
+                warn!("Unable to decode body");
                 self.serve_error(501, true).await;
             }
         };
@@ -295,7 +327,7 @@ impl<S: AsyncStream> ClientHandler<S> {
             debug!("serving static content");
             match req.verb() {
                 ReqVerb::Get => self.serve_static_resource().await,
-                //_ => self.serve_error(405),
+                _ => self.serve_error(405, true).await,
             };
         }
 
@@ -304,6 +336,7 @@ impl<S: AsyncStream> ClientHandler<S> {
 
     async fn serve_php(&mut self, used_credentials: Option<(String, String)>) {
         let req = self.current_req.as_ref().unwrap();
+
         let (path, query) = match req.target() {
             ReqTarget::Path(ReqPath {
                 decoded: path,
@@ -328,7 +361,7 @@ impl<S: AsyncStream> ClientHandler<S> {
         };
 
         let mut res_builder = ResBuilder::new(req.version());
-        if let Err(e) = res_builder
+        if let Err(err) = res_builder
             .run_php_script(PhpScriptParams {
                 script_path: script_path.as_str(),
                 script_query: query,
@@ -337,10 +370,11 @@ impl<S: AsyncStream> ClientHandler<S> {
                 verb: req.verb(),
                 address: &self.settings.address,
                 version: req.version(),
+                body: req.body(),
             })
             .await
         {
-            warn!("Cannot serve PHP script: {}", e);
+            warn!("Cannot serve PHP script: {}", err);
             self.serve_error(500, true).await;
         }
         let res = res_builder.do_build();
@@ -383,7 +417,7 @@ impl<S: AsyncStream> ClientHandler<S> {
                 }
 
                 match res_builder
-                    .set_file_body(full_path.as_path(), req.encoding())
+                    .set_file_body(full_path.as_path(), req.accepted_encoding())
                     .await
                 {
                     Ok(()) => {
