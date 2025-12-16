@@ -1,11 +1,17 @@
 //! Data structures for modeling an HTTP request.
+//!
+//! An HTTP request is represented as two parts: a head (first line and headers) and an optional body.
 
-use crate::http_header::{EntityHeader, GeneralHeader, HeaderValue, ReqHeader, SimpleHeaderValue};
+pub(crate) use crate::http_header::{
+    EntityHeader, GeneralHeader, HeaderValue, ReqHeader, SimpleHeaderValue,
+};
 use crate::req_parser::SupportedEncoding;
 
 use std::{collections, fmt};
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// HTTP request verb.
 #[derive(Debug, PartialEq)]
 pub enum ReqVerb {
     Get,
@@ -28,13 +34,18 @@ impl fmt::Display for ReqVerb {
     }
 }
 
+/// The path of an HTTP request. This path is URL-encoded, and can contain query params.
 #[derive(Debug, PartialEq)]
 pub struct ReqPath {
+    // url-encoded path
     pub original: String,
+    // url-decoded path
     pub decoded: String,
+    // query params
     pub query: String,
 }
 
+/// The target can be either a path or a star '*' for OPTIONS requests.
 #[derive(Debug, PartialEq)]
 pub enum ReqTarget {
     All,
@@ -50,6 +61,7 @@ impl fmt::Display for ReqTarget {
     }
 }
 
+/// HTTP Request head: first line and headers.
 #[derive(Debug)]
 pub struct ReqHead {
     verb: ReqVerb,
@@ -87,7 +99,7 @@ impl ReqHead {
         self.headers
             .get(&ReqHeader::General(GeneralHeader::Connection))
             .is_some_and(|h| match h {
-                HeaderValue::Simple(SimpleHeaderValue::Plain(v)) => v.eq("close"),
+                HeaderValue::Simple(SimpleHeaderValue::String(v)) => v.eq("close"),
                 _ => false,
             })
     }
@@ -119,7 +131,7 @@ impl ReqHead {
         self.headers
             .get(&ReqHeader::Entity(EntityHeader::ContentType))
             .map(|v| match v {
-                HeaderValue::Simple(SimpleHeaderValue::Plain(s)) => s,
+                HeaderValue::Simple(SimpleHeaderValue::String(s)) => s,
                 _ => "",
             })
     }
@@ -135,6 +147,7 @@ impl fmt::Display for ReqHead {
     }
 }
 
+/// HTTP request body
 #[derive(Debug)]
 pub struct ReqBody {
     bytes: Vec<u8>,
@@ -160,6 +173,7 @@ impl ReqBody {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// An HTTP request.
 pub struct HttpReq {
     date: chrono::DateTime<chrono::Utc>,
     head: ReqHead,
@@ -249,7 +263,7 @@ mod tests {
             String::from("HTTP/1.1"),
             collections::HashMap::from([(
                 ReqHeader::ReqOnly(ReqOnlyHeader::Host),
-                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("foo"))),
+                HeaderValue::Simple(SimpleHeaderValue::String(String::from("foo"))),
             )]),
             None,
             None,
@@ -267,7 +281,7 @@ mod tests {
             req.headers(),
             &mut collections::HashMap::from([(
                 ReqHeader::ReqOnly(ReqOnlyHeader::Host),
-                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("foo"))),
+                HeaderValue::Simple(SimpleHeaderValue::String(String::from("foo"))),
             )])
         );
     }
@@ -286,14 +300,14 @@ mod tests {
 
         req.headers().insert(
             ReqHeader::General(GeneralHeader::Connection),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("close"))),
+            HeaderValue::Simple(SimpleHeaderValue::String(String::from("close"))),
         );
 
         assert!(req.should_close());
 
         req.headers().insert(
             ReqHeader::General(GeneralHeader::Connection),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive"))),
+            HeaderValue::Simple(SimpleHeaderValue::String(String::from("keep-alive"))),
         );
         assert!(!req.should_close());
     }
@@ -303,11 +317,11 @@ mod tests {
         let mut headers = collections::HashMap::new();
         headers.insert(
             ReqHeader::General(GeneralHeader::Connection),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("close"))),
+            HeaderValue::Simple(SimpleHeaderValue::String(String::from("close"))),
         );
         headers.insert(
             ReqHeader::ReqOnly(ReqOnlyHeader::Host),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
+            HeaderValue::Simple(SimpleHeaderValue::String(String::from("rust-http-server"))),
         );
         headers.insert(
             ReqHeader::ReqOnly(ReqOnlyHeader::Accept),

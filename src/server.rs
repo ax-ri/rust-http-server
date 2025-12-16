@@ -1,4 +1,4 @@
-//! Http server source file.
+//! HTTP server source file.
 //!
 //! Set up a TCP socket and serve incoming requests.
 

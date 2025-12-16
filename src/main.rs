@@ -1,3 +1,7 @@
+//! Binary crate to run the program.
+//!
+//! The main function parses the CLI arguments and then starts the server.
+
 #![cfg_attr(coverage, feature(coverage_attribute))]
 
 use rust_http_server::server::{Server, Settings};

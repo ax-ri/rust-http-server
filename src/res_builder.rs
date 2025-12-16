@@ -1,11 +1,13 @@
+//! Utility to build an HTTP response.
+
 use crate::http_header::{
     EntityHeader, GeneralHeader, HeaderValue, ResHeader, ResOnlyHeader, SimpleHeaderValue,
 };
+use crate::http_req::{ReqBody, ReqVerb};
 use crate::http_res::{self, HttpRes, ResBody};
 use crate::req_parser::SupportedEncoding;
-
-use crate::http_req::{ReqBody, ReqVerb};
 use crate::res_builder::ResBuildingError::PhpError;
+
 use log::debug;
 use std::io::Write;
 use std::{cmp, fmt, fs, io, net, path, process, str::FromStr};
@@ -27,6 +29,7 @@ impl fmt::Display for ResBuildingError {
     }
 }
 
+/// Parameters for running a PHP script.
 pub struct PhpScriptParams<'a> {
     pub interpreter_path: &'a str,
     pub script_path: &'a str,
@@ -56,6 +59,7 @@ impl ResBuilder {
         );
     }
 
+    /// Generate an HTML response by listing the content of a directory.
     pub fn list_directory(
         &mut self,
         dir_path: &path::Path,
@@ -126,6 +130,7 @@ impl ResBuilder {
         Ok(())
     }
 
+    /// Generate a response with the content of a static file.
     pub async fn set_file_body(
         &mut self,
         mut file_path: &path::Path,
@@ -170,7 +175,7 @@ impl ResBuilder {
                 // set the used encoding in the response header
                 self.res.set_header(
                     ResHeader::Entity(EntityHeader::ContentEncoding),
-                    HeaderValue::Simple(SimpleHeaderValue::Plain(String::from(encoding))),
+                    HeaderValue::Simple(SimpleHeaderValue::String(String::from(encoding))),
                 );
 
                 let metadata = fs::metadata(file_path)?;
@@ -196,6 +201,7 @@ impl ResBuilder {
         Ok(())
     }
 
+    /// Generate a response by running a PHP script.
     pub async fn run_php_script(
         &mut self,
         params: PhpScriptParams<'_>,
@@ -294,6 +300,7 @@ impl ResBuilder {
         Ok(())
     }
 
+    /// Generate an HTML error page for an HTTP status code.
     pub fn build_error(&mut self, status_code: u16, with_body: bool) -> &mut HttpRes {
         self.res.set_status(status_code);
 
@@ -301,7 +308,7 @@ impl ResBuilder {
         if status_code == 401 {
             self.res.set_header(
                 ResHeader::ResOnly(ResOnlyHeader::WWWAuthenticate),
-                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from(
+                HeaderValue::Simple(SimpleHeaderValue::String(String::from(
                     "Basic realm=\"simple\"",
                 ))),
             )
@@ -335,18 +342,19 @@ impl ResBuilder {
         } else {
             self.res.set_header(
                 ResHeader::Entity(EntityHeader::ContentLength),
-                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("0"))),
+                HeaderValue::Simple(SimpleHeaderValue::String(String::from("0"))),
             );
         }
         self.do_build()
     }
 
+    /// Build the HTTP response to be sent back to the client.
     pub fn do_build(&mut self) -> &mut HttpRes {
         // set date if not already present
         if !self.res.has_header(ResHeader::General(GeneralHeader::Date)) {
             self.res.set_header(
                 ResHeader::General(GeneralHeader::Date),
-                HeaderValue::Simple(SimpleHeaderValue::Plain(
+                HeaderValue::Simple(SimpleHeaderValue::String(
                     chrono::Utc::now()
                         .format("%a, %d %b %Y %H:%M:%S GMT")
                         .to_string(),
@@ -361,7 +369,7 @@ impl ResBuilder {
         {
             self.res.set_header(
                 ResHeader::ResOnly(ResOnlyHeader::Server),
-                HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
+                HeaderValue::Simple(SimpleHeaderValue::String(String::from("rust-http-server"))),
             );
         }
 

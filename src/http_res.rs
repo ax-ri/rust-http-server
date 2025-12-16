@@ -1,4 +1,6 @@
 //! Data structures for modeling an HTTP response.
+//!
+//! An HTTP response is made of a first line, some headers, and a body.
 
 use crate::http_header::{HeaderValue, ResHeader};
 
@@ -53,6 +55,7 @@ pub fn get_reason_phrase(status_code: u16) -> String {
     }
 }
 
+/// HTTP response body
 pub enum ResBody {
     Bytes(Vec<u8>),
     Stream(tokio::fs::File, u64),
@@ -113,6 +116,9 @@ impl HttpRes {
         self.raw_headers = Some(headers);
     }
 
+    /// Generate the bytes corresponding to the response head (first line and headers)
+    /// These bytes must be dynamically generated, contrary to the response body that can be read
+    /// from a stream (typically, a static file on the filesystem).
     pub fn head_bytes(&self) -> Vec<u8> {
         let mut res_string = String::new();
         res_string.push_str(&format!(
@@ -167,11 +173,11 @@ mod tests {
         res.set_status(200);
         res.set_header(
             ResHeader::General(GeneralHeader::Connection),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive"))),
+            HeaderValue::Simple(SimpleHeaderValue::String(String::from("keep-alive"))),
         );
         res.set_header(
             ResHeader::ResOnly(ResOnlyHeader::Server),
-            HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
+            HeaderValue::Simple(SimpleHeaderValue::String(String::from("rust-http-server"))),
         );
 
         assert_eq!(res.status_code(), 200);
@@ -182,11 +188,13 @@ mod tests {
             collections::HashMap::from([
                 (
                     ResHeader::General(GeneralHeader::Connection),
-                    HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("keep-alive")))
+                    HeaderValue::Simple(SimpleHeaderValue::String(String::from("keep-alive")))
                 ),
                 (
                     ResHeader::ResOnly(ResOnlyHeader::Server),
-                    HeaderValue::Simple(SimpleHeaderValue::Plain(String::from("rust-http-server"))),
+                    HeaderValue::Simple(SimpleHeaderValue::String(String::from(
+                        "rust-http-server"
+                    ))),
                 )
             ])
         );

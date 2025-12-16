@@ -15,7 +15,4 @@ echo '<pre>';
 var_dump($_POST);
 echo '</pre>';
 
-/* echo '<h2><code>phpinfo()</code></h2>';
- phpinfo(); */
-
 ?>
